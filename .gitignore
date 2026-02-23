@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+backend/.venv/
+
+# Runtime outputs
+backend/output/
+backend/memory/conversations/
+output/
+
+# Environment (contains API keys)
+backend/.env
+
+# Test data
+backend/test_data/
+temp_sales.csv
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cursor
+.cursor/

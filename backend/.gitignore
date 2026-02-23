@@ -1,0 +1,10 @@
+.venv/
+output/
+__pycache__/
+*.pyc
+*.pyo
+memory/conversations/
+.env
+*.egg-info/
+dist/
+build/

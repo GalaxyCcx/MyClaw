@@ -1,0 +1,8 @@
+duckdb
+pandas
+matplotlib
+seaborn
+openpyxl
+markdown
+pymdown-extensions
+python-pptx

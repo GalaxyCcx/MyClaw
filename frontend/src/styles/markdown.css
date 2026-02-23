@@ -1,0 +1,133 @@
+.md-body {
+  color: #1d1d1f;
+}
+
+.md-body h1,
+.md-body h2,
+.md-body h3,
+.md-body h4,
+.md-body h5,
+.md-body h6 {
+  margin-top: 1.2em;
+  margin-bottom: 0.5em;
+  font-weight: 600;
+  line-height: 1.4;
+  color: #141414;
+}
+
+.md-body h1 { font-size: 1.5em; }
+.md-body h2 { font-size: 1.3em; }
+.md-body h3 { font-size: 1.15em; }
+.md-body h4 { font-size: 1.05em; }
+
+.md-body h1:first-child,
+.md-body h2:first-child,
+.md-body h3:first-child {
+  margin-top: 0;
+}
+
+.md-body p {
+  margin: 0.6em 0;
+}
+
+.md-body p:first-child {
+  margin-top: 0;
+}
+
+.md-body p:last-child {
+  margin-bottom: 0;
+}
+
+/* Lists */
+.md-body ul,
+.md-body ol {
+  margin: 0.5em 0;
+  padding-left: 1.8em;
+}
+
+.md-body li {
+  margin: 0.25em 0;
+}
+
+.md-body li > p {
+  margin: 0.2em 0;
+}
+
+.md-body li > ul,
+.md-body li > ol {
+  margin: 0.15em 0;
+}
+
+/* Table */
+.md-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92em;
+}
+
+.md-table th,
+.md-table td {
+  border: 1px solid #e5e5e5;
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.md-table th {
+  background: #fafafa;
+  font-weight: 600;
+  color: #333;
+  white-space: nowrap;
+}
+
+.md-table tr:nth-child(even) {
+  background: #fafbfc;
+}
+
+.md-table tr:hover {
+  background: #f0f5ff;
+}
+
+/* Blockquote */
+.md-blockquote {
+  margin: 0.8em 0;
+  padding: 8px 16px;
+  border-left: 4px solid #d9d9d9;
+  background: #fafafa;
+  color: #595959;
+  border-radius: 0 6px 6px 0;
+}
+
+.md-blockquote p {
+  margin: 0.3em 0;
+}
+
+/* Horizontal rule */
+.md-hr {
+  border: none;
+  border-top: 1px solid #e8e8e8;
+  margin: 1em 0;
+}
+
+/* Strong / Bold */
+.md-body strong {
+  font-weight: 600;
+  color: #141414;
+}
+
+/* Images */
+.md-body img {
+  max-width: 100%;
+  border-radius: 6px;
+  margin: 0.5em 0;
+}
+
+/* Checkbox (GFM task list) */
+.md-body input[type="checkbox"] {
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+/* Strikethrough */
+.md-body del {
+  color: #999;
+}
