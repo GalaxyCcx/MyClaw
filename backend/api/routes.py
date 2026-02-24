@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import traceback
 import uuid
@@ -12,7 +13,11 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from agent.engine import run_agent, PROMPTS_DIR, _build_system_prompt, MODEL_CONTEXT_LIMITS, DEFAULT_CONTEXT_LIMIT
+from agent.auto_compactor import compact_history
+from agent.context_budget import load_context_policy, compute_thresholds, estimate_messages_tokens
 from agent.init_jobs import init_collector
+from agent.overflow_recovery import is_context_overflow
+from agent.history_pruner import prune_history
 from agent.skill_loader import get_skill_loader
 from tools import BUILTIN_TOOLS
 
@@ -21,6 +26,68 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 MEMORY_DIR = Path(__file__).resolve().parent.parent / "memory" / "conversations"
+
+
+def _govern_history_before_run(
+    history: list,
+    user_content: str,
+    model_name: str,
+    context_limit: int,
+):
+    policy = load_context_policy()
+    thresholds = compute_thresholds(
+        context_limit=context_limit,
+        reserve_tokens=policy.reserve_tokens,
+        soft_threshold=policy.soft_threshold_tokens,
+    )
+    probe_messages = list(history) + [{"role": "user", "content": user_content}]
+    probe_tokens = estimate_messages_tokens(probe_messages, model_name=model_name)
+
+    events: list[dict] = []
+    governed_history = list(history)
+
+    if probe_tokens > thresholds["preflight_limit"]:
+        pruned_history, prune_stats = prune_history(
+            governed_history,
+            target_tokens=thresholds["target_tokens"],
+            preserve_recent_turns=policy.preserve_recent_turns,
+            model_name=model_name,
+            max_tool_result_chars=policy.max_tool_result_chars,
+        )
+        pruned_probe = estimate_messages_tokens(pruned_history + [{"role": "user", "content": user_content}], model_name=model_name)
+        if pruned_history != governed_history:
+            events.append({
+                "type": "context_pruned",
+                "data": {
+                    "before_tokens": prune_stats.get("before_tokens", probe_tokens),
+                    "after_tokens": pruned_probe,
+                    "dropped_messages": prune_stats.get("dropped_messages", 0),
+                    "truncated_messages": prune_stats.get("truncated_messages", 0),
+                },
+            })
+        governed_history = pruned_history
+        probe_tokens = pruned_probe
+
+    if probe_tokens > thresholds["preflight_limit"]:
+        compacted_history, compact_stats = compact_history(
+            governed_history,
+            preserve_recent_turns=policy.preserve_recent_turns,
+            model_name=model_name,
+        )
+        compacted_probe = estimate_messages_tokens(compacted_history + [{"role": "user", "content": user_content}], model_name=model_name)
+        if compacted_history != governed_history:
+            events.append({
+                "type": "context_compacted",
+                "data": {
+                    "before_tokens": compact_stats.get("before_tokens", probe_tokens),
+                    "after_tokens": compacted_probe,
+                    "summary_chars": compact_stats.get("summary_chars", 0),
+                    "compacted_turns": compact_stats.get("compacted_turns", 0),
+                },
+            })
+        governed_history = compacted_history
+
+    return governed_history, events, policy
 
 
 def _save_turn(session_id: str, turn_num: int, user_content: str,
@@ -207,7 +274,6 @@ async def chat_ws(websocket: WebSocket):
         for s in loader.loaded_skills
     ]
     assembled_prompt = _build_system_prompt()
-    import os
     model_name = os.getenv("LLM_MODEL", "qwen-plus")
     context_limit = MODEL_CONTEXT_LIMITS.get(model_name, DEFAULT_CONTEXT_LIMIT)
     await websocket.send_json({
@@ -256,7 +322,22 @@ async def chat_ws(websocket: WebSocket):
                 await websocket.send_json(event)
 
             try:
-                round_messages = await run_agent(user_content, on_event, history=history, turn_num=turn_num)
+                governed_history, governance_events, _ = _govern_history_before_run(
+                    history=history,
+                    user_content=user_content,
+                    model_name=model_name,
+                    context_limit=context_limit,
+                )
+                for evt in governance_events:
+                    await websocket.send_json({
+                        "type": evt["type"],
+                        "step": 0,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "data": evt["data"],
+                    })
+
+                round_messages = await run_agent(user_content, on_event, history=governed_history, turn_num=turn_num)
+                history = list(governed_history)
                 history.append({"role": "user", "content": user_content})
                 history.extend(round_messages)
 
@@ -265,7 +346,49 @@ async def chat_ws(websocket: WebSocket):
                 except Exception as e:
                     logger.warning("Failed to save conversation turn: %s", e)
 
-            except Exception:
+            except Exception as run_err:
+                policy = load_context_policy()
+                if is_context_overflow(run_err) and policy.max_retry_on_overflow > 0:
+                    retry_history, compact_stats = compact_history(
+                        history,
+                        preserve_recent_turns=policy.preserve_recent_turns,
+                        model_name=model_name,
+                    )
+                    await websocket.send_json({
+                        "type": "context_compacted",
+                        "step": 0,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "data": {
+                            "before_tokens": compact_stats.get("before_tokens", 0),
+                            "after_tokens": compact_stats.get("after_tokens", 0),
+                            "summary_chars": compact_stats.get("summary_chars", 0),
+                            "compacted_turns": compact_stats.get("compacted_turns", 0),
+                        },
+                    })
+                    try:
+                        round_messages = await run_agent(user_content, on_event, history=retry_history, turn_num=turn_num)
+                        history = list(retry_history)
+                        history.append({"role": "user", "content": user_content})
+                        history.extend(round_messages)
+                        await websocket.send_json({
+                            "type": "overflow_recovered",
+                            "step": 0,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "data": {"retry_count": 1, "success": True, "reason": "context_overflow"},
+                        })
+                        try:
+                            _save_turn(session_id, turn_num, user_content, round_messages, created_at)
+                        except Exception as e:
+                            logger.warning("Failed to save conversation turn after retry: %s", e)
+                        continue
+                    except Exception:
+                        await websocket.send_json({
+                            "type": "overflow_recovered",
+                            "step": 0,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "data": {"retry_count": 1, "success": False, "reason": "context_overflow"},
+                        })
+
                 tb = traceback.format_exc()
                 logger.error("Agent error: %s", tb)
                 await websocket.send_json({

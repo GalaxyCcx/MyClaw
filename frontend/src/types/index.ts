@@ -8,7 +8,10 @@ export type EventType =
   | "init_status"
   | "graph_reset"
   | "node_enter"
-  | "node_exit";
+  | "node_exit"
+  | "context_pruned"
+  | "context_compacted"
+  | "overflow_recovered";
 
 export interface AgentEvent {
   type: EventType;
@@ -100,6 +103,26 @@ export interface NodeExitData {
   has_tool_calls?: boolean;
   status?: string;
   duration_ms: number;
+}
+
+export interface ContextPrunedData {
+  before_tokens: number;
+  after_tokens: number;
+  dropped_messages: number;
+  truncated_messages?: number;
+}
+
+export interface ContextCompactedData {
+  before_tokens: number;
+  after_tokens: number;
+  summary_chars: number;
+  compacted_turns?: number;
+}
+
+export interface OverflowRecoveredData {
+  retry_count: number;
+  success: boolean;
+  reason: string;
 }
 
 export type GraphNodeStatus = "waiting" | "running" | "completed" | "error";

@@ -18,6 +18,9 @@ class EventType(str, Enum):
     GRAPH_RESET = "graph_reset"
     NODE_ENTER = "node_enter"
     NODE_EXIT = "node_exit"
+    CONTEXT_PRUNED = "context_pruned"
+    CONTEXT_COMPACTED = "context_compacted"
+    OVERFLOW_RECOVERED = "overflow_recovered"
 
 
 class UserInputData(BaseModel):

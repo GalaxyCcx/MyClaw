@@ -9,6 +9,9 @@ const GRAPH_EVENTS = new Set([
   "user_input",
   "node_enter",
   "node_exit",
+  "context_pruned",
+  "context_compacted",
+  "overflow_recovered",
 ]);
 
 const CHAT_IGNORE = new Set([
@@ -17,6 +20,9 @@ const CHAT_IGNORE = new Set([
   "graph_reset",
   "node_enter",
   "node_exit",
+  "context_pruned",
+  "context_compacted",
+  "overflow_recovered",
 ]);
 
 let msgIdCounter = 0;

@@ -12,6 +12,9 @@ import type {
   ToolResultData,
   FinalAnswerData,
   TokenUsage,
+  ContextPrunedData,
+  ContextCompactedData,
+  OverflowRecoveredData,
 } from "../types";
 
 let edgeCounter = 0;
@@ -32,11 +35,25 @@ export function useGraph() {
   const [graphNodes, setGraphNodes] = useState<GraphNode[]>([]);
   const [graphEdges, setGraphEdges] = useState<GraphEdge[]>([]);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
-  const [lastNodeId, setLastNodeId] = useState<string | null>(null);
+  const [, setLastNodeId] = useState<string | null>(null);
   const turnRef = useRef(0);
   const activeSkillRef = useRef<string | null>(null);
 
   const handleGraphEvent = useCallback((event: AgentEvent) => {
+    const patchLastActiveNode = (patch: Record<string, unknown>) => {
+      setGraphNodes((prev) => {
+        if (prev.length === 0) return prev;
+        const next = [...prev];
+        for (let i = next.length - 1; i >= 0; i--) {
+          if (next[i].status === "running" || next[i].type === "llm" || next[i].type === "tool") {
+            next[i] = { ...next[i], data: { ...next[i].data, ...patch } };
+            break;
+          }
+        }
+        return next;
+      });
+    };
+
     switch (event.type) {
       case "init_status": {
         const d = event.data as unknown as InitStatusData;
@@ -232,6 +249,44 @@ export function useGraph() {
             setGraphEdges((prevEdges) => addEdge(prevEdges, prevLast, ansNode.id));
           }
           return ansNode.id;
+        });
+        break;
+      }
+
+      case "context_pruned": {
+        const d = event.data as unknown as ContextPrunedData;
+        patchLastActiveNode({
+          context_pruned: {
+            before_tokens: d.before_tokens,
+            after_tokens: d.after_tokens,
+            dropped_messages: d.dropped_messages,
+            truncated_messages: d.truncated_messages || 0,
+          },
+        });
+        break;
+      }
+
+      case "context_compacted": {
+        const d = event.data as unknown as ContextCompactedData;
+        patchLastActiveNode({
+          context_compacted: {
+            before_tokens: d.before_tokens,
+            after_tokens: d.after_tokens,
+            summary_chars: d.summary_chars,
+            compacted_turns: d.compacted_turns || 0,
+          },
+        });
+        break;
+      }
+
+      case "overflow_recovered": {
+        const d = event.data as unknown as OverflowRecoveredData;
+        patchLastActiveNode({
+          overflow_recovered: {
+            retry_count: d.retry_count,
+            success: d.success,
+            reason: d.reason,
+          },
         });
         break;
       }
