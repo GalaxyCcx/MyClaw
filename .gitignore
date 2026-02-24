@@ -37,3 +37,7 @@ Thumbs.db
 
 # Cursor
 .cursor/
+
+# Generated reports and draft docs
+agent_skills_research_report.html
+docs/PRD-v*-*.md
