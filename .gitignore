@@ -17,6 +17,9 @@ output/
 # Environment (contains API keys)
 backend/.env
 
+# MCP runtime config (user toggles)
+backend/config/mcp.json
+
 # Test data
 backend/test_data/
 temp_sales.csv
@@ -24,6 +27,7 @@ temp_sales.csv
 # Node
 frontend/node_modules/
 frontend/dist/
+backend/node_modules/
 
 # IDE
 .vscode/

@@ -1,5 +1,6 @@
 langchain>=0.3
 langgraph>=1.0
+mcp[cli]>=1.0
 langchain-openai>=0.3
 fastapi>=0.115
 uvicorn>=0.34

@@ -1,4 +1,8 @@
 @echo off
+if not "%~1"=="RUN" (
+    start "MyClaw Startup" cmd /k "%~f0" RUN
+    exit /b
+)
 setlocal
 title MyClaw Agent Platform
 
@@ -68,10 +72,17 @@ if not exist "%DEPS_MARKER%" (
 ) else (
     echo   Dependencies already installed.
 )
+echo   Ensuring mcp[cli] for browser automation...
+"%PIP%" install "mcp[cli]>=1.0" -q
+if errorlevel 1 (
+    echo [WARN] mcp install failed, MCP Chrome may not work.
+) else (
+    echo   mcp OK
+)
 echo.
 
-rem 4) Install frontend dependencies
-echo [4/5] Checking frontend dependencies...
+rem 4) Install frontend and bridge dependencies
+echo [4/5] Checking frontend and bridge dependencies...
 if not exist "%FRONTEND%\node_modules" (
     pushd "%FRONTEND%"
     call npm install
@@ -82,12 +93,49 @@ if not exist "%FRONTEND%\node_modules" (
     )
     popd
 ) else (
-    echo   Dependencies already installed.
+    echo   Frontend dependencies OK.
+)
+if not exist "%BACKEND%\node_modules" (
+    echo   Installing mcp-chrome-bridge...
+    pushd "%BACKEND%"
+    call npm install
+    if errorlevel 1 (
+        popd
+        echo [WARN] Failed to install mcp-chrome-bridge. Browser automation may not work.
+    ) else (
+        popd
+        echo   mcp-chrome-bridge OK
+    )
+) else (
+    echo   Bridge dependencies OK.
+)
+if exist "%BACKEND%\patches" (
+    echo   Applying patches ^(mcp-chrome-bridge multi-connection fix^)...
+    pushd "%BACKEND%"
+    call npx patch-package
+    if errorlevel 1 (
+        echo   [WARN] Patch apply failed. MCP Chrome may have connection issues.
+    ) else (
+        echo   Patches OK
+    )
+    popd
+)
+if exist "%BACKEND%\node_modules\mcp-chrome-bridge" (
+    echo   Registering bridge with Chrome ^(Native Messaging^)...
+    pushd "%BACKEND%"
+    cmd /c "npx mcp-chrome-bridge register --detect"
+    if errorlevel 1 (
+        echo   [WARN] Bridge registration failed. Run manually: cd backend ^&^& npx mcp-chrome-bridge register --detect
+    ) else (
+        echo   Bridge registered OK
+    )
+    popd
 )
 echo.
 
-rem 5) Start services
-echo [5/5] Starting services...
+rem 5) Enable MCP and start services
+echo [5/5] Enabling MCP and starting services...
+"%PY%" "%BACKEND%\scripts\init_mcp.py"
 if not exist "%BACKEND%\.env" (
     echo [WARN] backend\.env not found. Create it from backend\.env.example first.
 )
@@ -109,10 +157,14 @@ echo.
 echo Started:
 echo   Frontend: http://localhost:5173
 echo   Backend : http://localhost:8000
+echo   MCP Chrome: click Connect in extension to start bridge (port 12306)
 echo.
 echo Opening browser in 3 seconds...
 timeout /t 3 /nobreak >nul
 start "" "http://localhost:5173"
+echo.
+echo Press any key to close this window...
+pause >nul
 goto :eof
 
 :error_exit

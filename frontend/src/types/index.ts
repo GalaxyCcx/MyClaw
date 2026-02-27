@@ -73,6 +73,13 @@ export interface InitSkillInfo {
   scripts: string[];
 }
 
+export interface MCPInfo {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+}
+
 export interface TokenUsage {
   prompt_tokens: number;
   completion_tokens: number;

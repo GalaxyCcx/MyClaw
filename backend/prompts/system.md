@@ -14,6 +14,11 @@
 - `python_executor(code)` — 在隔离子进程中执行 Python 代码。请将完整代码写在一次调用中。
 - `shell_executor(command)` — 执行 shell 命令。
 
+### 浏览器自动化（若已启用 MCP Chrome）
+- `get_windows_and_tabs`、`chrome_navigate`、`chrome_get_web_content`、`chrome_click_element` 等 — 通过 mcp-chrome 扩展操作浏览器。
+- **强制规则**：若你的工具列表中有上述浏览器工具，**必须直接调用它们**完成导航、读取页面等操作。**禁止**使用 `shell_executor` 或 `python_executor` 通过 curl/socket 等方式「模拟」调用 bridge（bridge 使用 MCP 协议，非简单 HTTP JSON）。
+- **工具返回 "Failed to connect to MCP server" 且用户称扩展已连接**：告知用户「bridge 与扩展的连接可能已断开，请在扩展中点击断开后重新点击 Connect，或重启 Chrome」。
+
 ### Skill 管理
 - `read_skill_doc(skill_name)` — 读取 Skill 的完整文档，获取其脚本调用方式。
 

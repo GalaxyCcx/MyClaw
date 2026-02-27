@@ -26,6 +26,7 @@ const JOB_LABELS: Record<string, string> = {
   check_llm: "Check LLM Connection",
   discover_skills: "Discover Skills (metadata only)",
   register_tools: "Register Builtin Tools",
+  check_mcp_chrome: "MCP Chrome Bridge",
 };
 
 function SkillListPanel({ skills, onViewDoc }: { skills: InitSkillInfo[]; onViewDoc: (name: string) => void }) {
@@ -224,6 +225,8 @@ export default function InitJobsSection({ jobs, skills, systemPrompt }: Props) {
   if (jobs.length === 0 && !systemPrompt) return null;
 
   const allSuccess = jobs.every((j) => j.status === "success");
+  const hasError = jobs.some((j) => j.status === "error");
+  const hasWarning = jobs.some((j) => j.status === "warning");
 
   return (
     <div style={{ marginBottom: 8 }}>
@@ -232,8 +235,8 @@ export default function InitJobsSection({ jobs, skills, systemPrompt }: Props) {
           Initialization
         </Text>
         {jobs.length > 0 && (
-          <Text style={{ fontSize: 11, color: allSuccess ? "#52c41a" : "#ff4d4f" }}>
-            {allSuccess ? `${jobs.length}/${jobs.length} passed` : "has errors"}
+          <Text style={{ fontSize: 11, color: allSuccess ? "#52c41a" : hasError ? "#ff4d4f" : "#faad14" }}>
+            {allSuccess ? `${jobs.length}/${jobs.length} passed` : hasError ? "has errors" : "has warnings"}
           </Text>
         )}
       </div>

@@ -1,0 +1,38 @@
+diff --git a/node_modules/mcp-chrome-bridge/dist/mcp/mcp-server.js b/node_modules/mcp-chrome-bridge/dist/mcp/mcp-server.js
+index 1e646b8..62f1e74 100644
+--- a/node_modules/mcp-chrome-bridge/dist/mcp/mcp-server.js
++++ b/node_modules/mcp-chrome-bridge/dist/mcp/mcp-server.js
+@@ -1,14 +1,15 @@
+ "use strict";
+ Object.defineProperty(exports, "__esModule", { value: true });
+-exports.getMcpServer = exports.mcpServer = void 0;
++exports.getMcpServer = void 0;
+ const index_js_1 = require("@modelcontextprotocol/sdk/server/index.js");
+ const register_tools_1 = require("./register-tools");
+-exports.mcpServer = null;
++/**
++ * Factory: create a new MCP Server instance per connection.
++ * Fixes "Already connected to a transport" when multiple clients (e.g. Cursor + MyClaw) connect.
++ * See: hangwin/mcp-chrome#296, #301
++ */
+ const getMcpServer = () => {
+-    if (exports.mcpServer) {
+-        return exports.mcpServer;
+-    }
+-    exports.mcpServer = new index_js_1.Server({
++    const server = new index_js_1.Server({
+         name: 'ChromeMcpServer',
+         version: '1.0.0',
+     }, {
+@@ -16,8 +17,8 @@ const getMcpServer = () => {
+             tools: {},
+         },
+     });
+-    (0, register_tools_1.setupTools)(exports.mcpServer);
+-    return exports.mcpServer;
++    (0, register_tools_1.setupTools)(server);
++    return server;
+ };
+ exports.getMcpServer = getMcpServer;
+ //# sourceMappingURL=mcp-server.js.map
+\ No newline at end of file

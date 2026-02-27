@@ -28,8 +28,16 @@ class InitJobCollector:
         try:
             result = func()
             elapsed = (time.perf_counter() - start) * 1000
-            detail = str(result) if result is not None else "OK"
-            job = JobResult(name=name, status="success", detail=detail, duration_ms=round(elapsed, 1))
+            if isinstance(result, JobResult):
+                job = JobResult(
+                    name=name,
+                    status=result.status,
+                    detail=result.detail,
+                    duration_ms=round(elapsed, 1),
+                )
+            else:
+                detail = str(result) if result is not None else "OK"
+                job = JobResult(name=name, status="success", detail=detail, duration_ms=round(elapsed, 1))
         except Exception as e:
             elapsed = (time.perf_counter() - start) * 1000
             job = JobResult(name=name, status="error", detail=str(e), duration_ms=round(elapsed, 1))

@@ -1,0 +1,16 @@
+{
+  "name": "myclaw-backend",
+  "private": true,
+  "version": "0.0.0",
+  "description": "MyClaw backend - includes mcp-chrome-bridge for browser automation",
+  "scripts": {
+    "bridge:register": "mcp-chrome-bridge register --detect",
+    "postinstall": "patch-package"
+  },
+  "dependencies": {
+    "mcp-chrome-bridge": "^1.0.31"
+  },
+  "devDependencies": {
+    "patch-package": "^8.0.1"
+  }
+}

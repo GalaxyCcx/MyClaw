@@ -12,6 +12,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
+from config.mcp_config import list_mcps, set_mcp_enabled
 from agent.engine import run_agent, PROMPTS_DIR, _build_system_prompt, MODEL_CONTEXT_LIMITS, DEFAULT_CONTEXT_LIMIT
 from agent.auto_compactor import compact_history
 from agent.context_budget import load_context_policy, compute_thresholds, estimate_messages_tokens
@@ -19,7 +20,7 @@ from agent.init_jobs import init_collector
 from agent.overflow_recovery import is_context_overflow
 from agent.history_pruner import prune_history
 from agent.skill_loader import get_skill_loader
-from tools import BUILTIN_TOOLS
+from tools import get_all_tools
 
 logger = logging.getLogger(__name__)
 
@@ -152,9 +153,10 @@ def _update_frontmatter_turns(file_path: Path, turns: int):
 
 @router.get("/api/tools")
 async def list_tools():
+    tools = get_all_tools()
     builtin = [
         {"name": t.name, "description": t.description, "source": "builtin"}
-        for t in BUILTIN_TOOLS
+        for t in tools
     ]
     return {"tools": builtin}
 
@@ -245,6 +247,55 @@ async def get_conversation(session_id: str):
     return {"session_id": session_id, "content": file_path.read_text(encoding="utf-8")}
 
 
+@router.get("/api/mcp")
+async def list_mcp():
+    """List all known MCPs with enabled state."""
+    return {"mcps": list_mcps()}
+
+
+class MCPEnabledUpdate(BaseModel):
+    enabled: bool
+
+
+@router.patch("/api/mcp/{mcp_id}/enabled")
+async def update_mcp_enabled(mcp_id: str, body: MCPEnabledUpdate):
+    """Toggle MCP enabled state."""
+    mcps = {m["id"] for m in list_mcps()}
+    if mcp_id not in mcps:
+        raise HTTPException(status_code=404, detail=f"MCP '{mcp_id}' not found")
+    set_mcp_enabled(mcp_id, body.enabled)
+    return {"id": mcp_id, "enabled": body.enabled}
+
+
+@router.get("/api/mcp/chrome/status")
+async def mcp_chrome_status():
+    """Diagnostic: check MCP Chrome bridge reachability and tool loading."""
+    from config.mcp_config import is_mcp_enabled
+    from mcp_client.chrome_client import _check_bridge_reachable, _get_config
+
+    url, _ = _get_config()
+    enabled = is_mcp_enabled("mcp-chrome")
+    reachable, msg = _check_bridge_reachable(url)
+    tools_loaded = False
+    tool_count = 0
+    if enabled and reachable:
+        try:
+            from mcp_client import get_mcp_chrome_tools
+            tools = get_mcp_chrome_tools()
+            tools_loaded = True
+            tool_count = len(tools)
+        except Exception as e:
+            msg = str(e)
+    return {
+        "enabled": enabled,
+        "url": url,
+        "http_reachable": reachable,
+        "http_message": msg,
+        "tools_loaded": tools_loaded,
+        "tool_count": tool_count,
+    }
+
+
 @router.post("/api/skills/reload")
 async def reload_skills():
     loader = get_skill_loader()
@@ -267,7 +318,7 @@ async def chat_ws(websocket: WebSocket):
 
     loader = get_skill_loader()
     builtin_tools_info = [
-        {"name": t.name, "source": "builtin"} for t in BUILTIN_TOOLS
+        {"name": t.name, "source": "builtin"} for t in get_all_tools()
     ]
     skills_info = [
         {"name": s.name, "description": s.description, "scripts": s.scripts}

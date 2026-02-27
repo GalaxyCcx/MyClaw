@@ -1,6 +1,6 @@
-from tools import BUILTIN_TOOLS
+from tools import get_all_tools as _get_tools
 
 
 def get_all_tools():
-    """返回所有可用工具（仅内置工具，skill 通过脚本执行器调用）。"""
-    return list(BUILTIN_TOOLS)
+    """返回所有可用工具（内置 + 已启用的 MCP）。"""
+    return _get_tools()

@@ -1,6 +1,7 @@
 import { Typography, Divider } from "antd";
 import type { GraphEdge, GraphNode, InitJob, InitSkillInfo } from "../types";
 import InitJobsSection from "./InitJobsSection";
+import MCPSection from "./MCPSection";
 import ExecutionGraph from "./ExecutionGraph";
 import NodeDetailDrawer from "./NodeDetailDrawer";
 
@@ -39,6 +40,7 @@ export default function GraphPanel({
     >
       <div style={{ padding: "12px 16px 0", flexShrink: 0 }}>
         <InitJobsSection jobs={initJobs} skills={initSkills} systemPrompt={systemPrompt} />
+        <MCPSection />
         {initJobs.length > 0 && graphNodes.length > 0 && (
           <Divider style={{ margin: "8px 0" }} />
         )}
