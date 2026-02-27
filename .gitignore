@@ -22,6 +22,7 @@ backend/config/mcp.json
 
 # Test data
 backend/test_data/
+testdata/
 temp_sales.csv
 
 # Node
@@ -44,4 +45,4 @@ Thumbs.db
 
 # Generated reports and draft docs
 agent_skills_research_report.html
-docs/PRD-v*-*.md
+backend/output/*.html
