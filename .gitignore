@@ -12,6 +12,7 @@ backend/.venv/
 # Runtime outputs
 backend/output/
 backend/memory/conversations/
+backend/memory/tool_outputs/
 output/
 
 # Environment (contains API keys)

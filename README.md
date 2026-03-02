@@ -1,5 +1,7 @@
 # MyClaw
 
+[![GitHub](https://img.shields.io/badge/GitHub-GalaxyCcx%2FMyClaw-blue)](https://github.com/GalaxyCcx/MyClaw)
+
 一个可扩展的通用 AI Agent 平台，支持通过挂载 Skills 扩展能力，集成 Browser MCP 浏览器自动化。
 
 ## 特性
