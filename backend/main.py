@@ -53,10 +53,10 @@ async def lifespan(app: FastAPI):
         return f"{len(tools)} builtin tools — [{', '.join(names)}]"
     init_collector.run_job("register_tools", _register_tools)
 
-    def _check_mcp_chrome():
-        from tools import get_mcp_chrome_init_status
-        return get_mcp_chrome_init_status()
-    init_collector.run_job("check_mcp_chrome", _check_mcp_chrome)
+    def _check_browser_mcp():
+        from tools import get_browser_mcp_init_status
+        return get_browser_mcp_init_status()
+    init_collector.run_job("check_browser_mcp", _check_browser_mcp)
 
     logger.info("MyClaw V2 initialized — %d jobs completed", len(init_collector.jobs))
     yield

@@ -22,41 +22,41 @@ BASE_TOOLS = [
     read_skill_reference,
 ]
 
-MCP_CHROME_LOAD_RETRIES = 3
-MCP_CHROME_LOAD_DELAY = 1.5
+BROWSER_MCP_LOAD_RETRIES = 3
+BROWSER_MCP_LOAD_DELAY = 1.5
 
 
-def _load_mcp_chrome_tools() -> list:
-    """Load MCP Chrome tools if enabled and bridge is available. Retries on connection failure."""
+def _load_browser_mcp_tools() -> list:
+    """Load Browser MCP tools if enabled. Retries on connection failure."""
     from config.mcp_config import is_mcp_enabled
 
-    if not is_mcp_enabled("mcp-chrome"):
+    if not is_mcp_enabled("browser-mcp"):
         return []
     last_err = None
-    for attempt in range(1, MCP_CHROME_LOAD_RETRIES + 1):
+    for attempt in range(1, BROWSER_MCP_LOAD_RETRIES + 1):
         try:
-            from mcp_client import get_mcp_chrome_tools
+            from mcp_client import get_browser_mcp_tools
 
-            tools = get_mcp_chrome_tools()
+            tools = get_browser_mcp_tools()
             if tools:
-                logger.info("Loaded %d MCP Chrome tools", len(tools))
+                logger.info("Loaded %d Browser MCP tools", len(tools))
                 return tools
             break
         except Exception as e:
             last_err = e
-            if attempt < MCP_CHROME_LOAD_RETRIES:
+            if attempt < BROWSER_MCP_LOAD_RETRIES:
                 logger.info(
-                    "MCP Chrome tools load attempt %d/%d failed, retrying in %.1fs: %s",
+                    "Browser MCP tools load attempt %d/%d failed, retrying in %.1fs: %s",
                     attempt,
-                    MCP_CHROME_LOAD_RETRIES,
-                    MCP_CHROME_LOAD_DELAY,
+                    BROWSER_MCP_LOAD_RETRIES,
+                    BROWSER_MCP_LOAD_DELAY,
                     e,
                 )
-                time.sleep(MCP_CHROME_LOAD_DELAY)
+                time.sleep(BROWSER_MCP_LOAD_DELAY)
             else:
                 logger.warning(
-                    "MCP Chrome tools not available after %d attempts (bridge may not be running): %s",
-                    MCP_CHROME_LOAD_RETRIES,
+                    "Browser MCP tools not available after %d attempts (extension may not be connected): %s",
+                    BROWSER_MCP_LOAD_RETRIES,
                     last_err,
                     exc_info=False,
                 )
@@ -64,32 +64,32 @@ def _load_mcp_chrome_tools() -> list:
 
 
 def get_all_tools() -> list:
-    """Return all tools (base + MCP when enabled). Dynamic per call."""
-    return list(BASE_TOOLS) + _load_mcp_chrome_tools()
+    """Return all tools (base + Browser MCP when enabled). Dynamic per call."""
+    return list(BASE_TOOLS) + _load_browser_mcp_tools()
 
 
-def get_mcp_chrome_init_status():
+def get_browser_mcp_init_status():
     """
-    Check MCP Chrome connection status for init job.
+    Check Browser MCP connection status for init job.
     Returns JobResult for display in Graph panel.
     """
     from agent.init_jobs import JobResult
 
     from config.mcp_config import is_mcp_enabled
 
-    if not is_mcp_enabled("mcp-chrome"):
-        return JobResult("check_mcp_chrome", "success", "MCP Chrome disabled (not enabled)", 0.0)
+    if not is_mcp_enabled("browser-mcp"):
+        return JobResult("check_browser_mcp", "success", "Browser MCP disabled (not enabled)", 0.0)
 
     last_err = None
-    for attempt in range(1, MCP_CHROME_LOAD_RETRIES + 1):
+    for attempt in range(1, BROWSER_MCP_LOAD_RETRIES + 1):
         try:
-            from mcp_client import get_mcp_chrome_tools
+            from mcp_client import get_browser_mcp_tools
 
-            tools = get_mcp_chrome_tools()
+            tools = get_browser_mcp_tools()
             if tools:
                 names = [t.name for t in tools]
                 return JobResult(
-                    "check_mcp_chrome",
+                    "check_browser_mcp",
                     "success",
                     f"{len(tools)} tools: {', '.join(names[:5])}{'...' if len(names) > 5 else ''}",
                     0.0,
@@ -97,14 +97,14 @@ def get_mcp_chrome_init_status():
             break
         except Exception as e:
             last_err = e
-            if attempt < MCP_CHROME_LOAD_RETRIES:
-                time.sleep(MCP_CHROME_LOAD_DELAY)
+            if attempt < BROWSER_MCP_LOAD_RETRIES:
+                time.sleep(BROWSER_MCP_LOAD_DELAY)
 
     err_msg = str(last_err) if last_err else "unknown"
     return JobResult(
-        "check_mcp_chrome",
+        "check_browser_mcp",
         "warning",
-        f"Bridge not reachable (port 12306). {err_msg} — 请先在 Chrome 扩展中点击 Connect",
+        f"扩展未连接。{err_msg[:100]} — 请在 Browser MCP 扩展中点击 Connect",
         0.0,
     )
 

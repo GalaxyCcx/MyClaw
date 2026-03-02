@@ -26,7 +26,7 @@ const JOB_LABELS: Record<string, string> = {
   check_llm: "Check LLM Connection",
   discover_skills: "Discover Skills (metadata only)",
   register_tools: "Register Builtin Tools",
-  check_mcp_chrome: "MCP Chrome Bridge",
+  check_browser_mcp: "Browser MCP",
 };
 
 function SkillListPanel({ skills, onViewDoc }: { skills: InitSkillInfo[]; onViewDoc: (name: string) => void }) {

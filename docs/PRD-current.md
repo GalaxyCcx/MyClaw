@@ -8,7 +8,7 @@
 
 ## 1. 产品概述
 
-MyClaw 是一个可扩展的通用 AI Agent 平台，支持通过挂载 Skills 扩展能力，集成 MCP Chrome 浏览器自动化，适用于企业内网后台、数据分析、报告生成等场景。
+MyClaw 是一个可扩展的通用 AI Agent 平台，支持通过挂载 Skills 扩展能力，集成 Browser MCP 浏览器自动化，适用于企业内网后台、数据分析、报告生成等场景。
 
 ### 1.1 核心价值
 
@@ -25,7 +25,7 @@ MyClaw 是一个可扩展的通用 AI Agent 平台，支持通过挂载 Skills �
 |------|------|
 | 后端 | FastAPI + LangChain + LangGraph + Qwen (阿里云百炼) |
 | 前端 | React + Vite + Ant Design + React Flow |
-| 浏览器自动化 | mcp-chrome 扩展 + mcp-chrome-bridge (Native Messaging) |
+| 浏览器自动化 | Browser MCP 扩展 + stdio (npx @browsermcp/mcp) |
 | 搜索 | Tavily API |
 
 ---
@@ -52,27 +52,27 @@ MyClaw 是一个可扩展的通用 AI Agent 平台，支持通过挂载 Skills �
 | `read_skill_doc` | 读取 Skill 文档 |
 | `read_skill_reference` | 读取 Skill 参考资源 |
 
-### 2.3 MCP Chrome 浏览器自动化
+### 2.3 Browser MCP 浏览器自动化
 
-**能力**：通过 Chrome 扩展操作浏览器，复用用户已登录会话。
+**能力**：通过 Browser MCP 扩展操作当前浏览器标签页，复用用户已登录会话。
 
-**工具**（启用 MCP Chrome 后可用）：
+**工具**（启用 Browser MCP 后可用）：
 
-- `get_windows_and_tabs` — 获取窗口和标签列表
-- `chrome_navigate` — 导航到 URL（支持 `newWindow: true` 在新窗口打开）
-- `chrome_switch_tab` — 切换活动标签
-- `chrome_get_web_content` — 提取页面内容
-- `chrome_get_interactive_elements` — 获取可点击元素
-- `chrome_click_element` — 点击元素
-- `chrome_fill_or_select` — 填写表单
-- `chrome_screenshot` — 截取截图
-- `chrome_keyboard` — 模拟键盘输入
+- `browser_navigate` — 导航到 URL
+- `browser_snapshot` — 获取页面可访问性快照（含元素 ref）
+- `browser_click` — 点击元素
+- `browser_type` — 在可编辑元素中输入文本
+- `browser_select_option` — 选择下拉选项
+- `browser_screenshot` — 截取截图
+- `browser_hover` — 悬停元素
+- `browser_wait` — 等待指定秒数
+- `browser_go_back` / `browser_go_forward` — 前进/后退
+- `browser_press_key` — 模拟按键
 
 **技术实现**：
 
-- **Bridge**：mcp-chrome-bridge，Chrome Native Messaging 协议，端口 12306
-- **客户端**：轻量 HTTP 客户端（POST-only），解析 SSE 响应，绕过 Python MCP SDK 的 500/TaskGroup 问题
-- **多连接补丁**：`patch-package` 对 mcp-chrome-bridge 打补丁，将 `getMcpServer()` 从单例改为工厂，支持 Cursor + MyClaw 同时连接
+- **连接方式**：stdio 子进程 `npx @browsermcp/mcp`，扩展通过本地 WebSocket 连接
+- **客户端**：Python mcp 包 StdioServerParameters + stdio_client + ClientSession
 
 ### 2.4 Skills 体系
 
@@ -95,7 +95,7 @@ MyClaw 是一个可扩展的通用 AI Agent 平台，支持通过挂载 Skills �
 启动时在 Graph 面板展示：
 
 - LLM 连接检查
-- MCP Chrome Bridge 状态检查
+- Browser MCP 状态检查
 - Skill 发现与加载
 
 ---
@@ -105,7 +105,7 @@ MyClaw 是一个可扩展的通用 AI Agent 平台，支持通过挂载 Skills �
 ### 3.1 前置条件
 
 - Python 3.10+
-- Node.js 18+（MCP Chrome 需 Node.js 20+）
+- Node.js 18+（Browser MCP 需 npx）
 - Chrome 或 Chromium 浏览器（用于浏览器自动化）
 
 ### 3.2 一键启动 (Windows)
@@ -114,12 +114,12 @@ MyClaw 是一个可扩展的通用 AI Agent 平台，支持通过挂载 Skills �
 start.bat
 ```
 
-自动完成：环境检查、虚拟环境创建、依赖安装、patch 应用、bridge 注册、服务启动。
+自动完成：环境检查、虚拟环境创建、依赖安装、服务启动。
 
 ### 3.3 配置
 
 - **API Key**：`backend/.env` 中配置 `LLM_API_KEY`、`TAVILY_API_KEY`
-- **MCP Chrome**：前端「MCP 扩展」面板启用，或 `MCP_CHROME_ENABLED=true`
+- **Browser MCP**：前端「MCP 扩展」面板启用，或 `BROWSER_MCP_ENABLED=true`
 
 ---
 
@@ -131,13 +131,12 @@ MyClaw/
 │   ├── agent/           # Agent 引擎、LLM、Skill 加载
 │   ├── api/             # FastAPI 路由、WebSocket
 │   ├── config/          # MCP 配置
-│   ├── mcp_client/      # MCP Chrome HTTP 客户端
+│   ├── mcp_client/      # Browser MCP stdio 客户端
 │   ├── memory/          # 对话记录
 │   ├── models/          # Pydantic 模型
 │   ├── prompts/        # System Prompt
 │   ├── skills/         # Skills 目录
 │   ├── tools/          # 内置工具
-│   ├── patches/        # patch-package 补丁
 │   └── main.py
 ├── frontend/            # React 前端
 ├── docs/                # 文档
@@ -149,7 +148,7 @@ MyClaw/
 
 ## 5. 已知限制与注意事项
 
-- **MCP Chrome**：bridge 由 Chrome 扩展点击 Connect 时启动，需先安装 mcp-chrome 扩展
+- **Browser MCP**：需安装 Browser MCP 扩展，在目标标签页点击 Connect 后 Agent 才能操作
 - **企业内网**：浏览器自动化复用用户登录态，适合需扫码/验证的后台
 - **Token 经济**：Skill 采用渐进式披露，按需加载文档以控制上下文长度
 
@@ -161,4 +160,4 @@ MyClaw/
 |------|------|----------|
 | v2 | 2026-02-22 | Skill 标准化、Prompt/Memory 文件化、执行图 |
 | v4 | - | 数据分析 Skills |
-| v5 | 2026-02-27 | MCP Chrome 集成、HTTP 客户端、多连接补丁、start.bat 集成 |
+| v5 | 2026-02-27 | Browser MCP 集成、stdio 客户端、start.bat 集成 |

@@ -15,10 +15,10 @@ MCP_CONFIG_FILE = CONFIG_DIR / "mcp.json"
 # Known MCPs that can be enabled/disabled
 KNOWN_MCPs = [
     {
-        "id": "mcp-chrome",
-        "name": "MCP Chrome",
-        "description": "通过 Chrome 扩展操作浏览器，支持企业内网登录、页面读取、表单填写",
-        "env_key": "MCP_CHROME_ENABLED",
+        "id": "browser-mcp",
+        "name": "Browser MCP",
+        "description": "通过 Browser MCP 扩展操作当前浏览器 tab",
+        "env_key": "BROWSER_MCP_ENABLED",
     },
 ]
 

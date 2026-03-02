@@ -29,6 +29,19 @@ router = APIRouter()
 MEMORY_DIR = Path(__file__).resolve().parent.parent / "memory" / "conversations"
 
 
+def _extract_user_friendly_error(exc: BaseException) -> str:
+    """Extract short, user-friendly message from exception."""
+    msg = str(exc).lower()
+    if "502" in msg or "bad gateway" in msg:
+        return "浏览器 bridge 连接异常。请在扩展中点击「断开」后重新「Connect」，或重启 Chrome。"
+    if "failed to connect" in msg or "无法连接" in msg:
+        return "无法连接浏览器 bridge。请确认扩展已点击 Connect，或尝试断开后重新连接。"
+    if "context" in msg or "overflow" in msg or "token" in msg:
+        return "上下文已满，请简化任务或开启新对话后重试。"
+    first_line = str(exc).split("\n")[0].strip()
+    return first_line[:120] + ("..." if len(first_line) > 120 else "")
+
+
 def _govern_history_before_run(
     history: list,
     user_content: str,
@@ -267,32 +280,29 @@ async def update_mcp_enabled(mcp_id: str, body: MCPEnabledUpdate):
     return {"id": mcp_id, "enabled": body.enabled}
 
 
-@router.get("/api/mcp/chrome/status")
-async def mcp_chrome_status():
-    """Diagnostic: check MCP Chrome bridge reachability and tool loading."""
+@router.get("/api/mcp/browser/status")
+async def mcp_browser_status():
+    """Diagnostic: check Browser MCP extension connection and tool loading."""
     from config.mcp_config import is_mcp_enabled
-    from mcp_client.chrome_client import _check_bridge_reachable, _get_config
 
-    url, _ = _get_config()
-    enabled = is_mcp_enabled("mcp-chrome")
-    reachable, msg = _check_bridge_reachable(url)
+    enabled = is_mcp_enabled("browser-mcp")
     tools_loaded = False
     tool_count = 0
-    if enabled and reachable:
+    msg = ""
+    if enabled:
         try:
-            from mcp_client import get_mcp_chrome_tools
-            tools = get_mcp_chrome_tools()
+            from mcp_client import get_browser_mcp_tools
+            tools = get_browser_mcp_tools()
             tools_loaded = True
             tool_count = len(tools)
+            msg = "OK"
         except Exception as e:
             msg = str(e)
     return {
         "enabled": enabled,
-        "url": url,
-        "http_reachable": reachable,
-        "http_message": msg,
         "tools_loaded": tools_loaded,
         "tool_count": tool_count,
+        "message": msg,
     }
 
 
@@ -306,40 +316,79 @@ async def reload_skills():
     }
 
 
+def _ensure_json_serializable(obj):
+    """Ensure object is JSON-serializable (Path, etc. -> str)."""
+    if isinstance(obj, Path):
+        return str(obj)
+    if isinstance(obj, dict):
+        return {str(k): _ensure_json_serializable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_ensure_json_serializable(v) for v in obj]
+    return obj
+
+
 # --- WebSocket ---
 
 @router.websocket("/ws/chat")
 async def chat_ws(websocket: WebSocket):
-    await websocket.accept()
+    try:
+        await websocket.accept()
+    except Exception as e:
+        logger.error("WebSocket accept failed: %s", e, exc_info=True)
+        return
+
     history: list = []
     session_id = uuid.uuid4().hex[:12]
     turn_num = 0
     created_at = datetime.now(timezone.utc).isoformat()
 
-    loader = get_skill_loader()
-    builtin_tools_info = [
-        {"name": t.name, "source": "builtin"} for t in get_all_tools()
-    ]
-    skills_info = [
-        {"name": s.name, "description": s.description, "scripts": s.scripts}
-        for s in loader.loaded_skills
-    ]
-    assembled_prompt = _build_system_prompt()
-    model_name = os.getenv("LLM_MODEL", "qwen-plus")
-    context_limit = MODEL_CONTEXT_LIMITS.get(model_name, DEFAULT_CONTEXT_LIMIT)
-    await websocket.send_json({
-        "type": "init_status",
-        "step": 0,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "data": {
-            "jobs": init_collector.to_dict_list(),
-            "tools": builtin_tools_info,
-            "skills": skills_info,
-            "system_prompt": assembled_prompt,
-            "model_name": model_name,
-            "context_limit": context_limit,
-        },
-    })
+    try:
+        loader = get_skill_loader()
+        builtin_tools_info = [
+            {"name": str(t.name), "source": "builtin"} for t in get_all_tools()
+        ]
+        skills_info = [
+            {"name": str(s.name), "description": str(s.description), "scripts": list(s.scripts)}
+            for s in loader.loaded_skills
+        ]
+        assembled_prompt = _build_system_prompt()
+        model_name = os.getenv("LLM_MODEL", "qwen-plus")
+        context_limit = MODEL_CONTEXT_LIMITS.get(model_name, DEFAULT_CONTEXT_LIMIT)
+        payload = {
+            "type": "init_status",
+            "step": 0,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "data": {
+                "jobs": init_collector.to_dict_list(),
+                "tools": builtin_tools_info,
+                "skills": skills_info,
+                "system_prompt": assembled_prompt,
+                "model_name": model_name,
+                "context_limit": context_limit,
+            },
+        }
+        payload = _ensure_json_serializable(payload)
+        json.dumps(payload)
+        await websocket.send_json(payload)
+    except Exception as e:
+        logger.error("init_status build/send failed: %s", e, exc_info=True)
+        try:
+            await websocket.send_json({
+                "type": "init_status",
+                "step": 0,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "data": {
+                    "jobs": init_collector.to_dict_list(),
+                    "tools": [],
+                    "skills": [],
+                    "system_prompt": "",
+                    "model_name": os.getenv("LLM_MODEL", "qwen-plus"),
+                    "context_limit": DEFAULT_CONTEXT_LIMIT,
+                    "_init_error": str(e)[:200],
+                },
+            })
+        except Exception as send_err:
+            logger.error("Failed to send fallback init_status: %s", send_err, exc_info=True)
 
     try:
         while True:
@@ -442,11 +491,12 @@ async def chat_ws(websocket: WebSocket):
 
                 tb = traceback.format_exc()
                 logger.error("Agent error: %s", tb)
+                detail = _extract_user_friendly_error(run_err)
                 await websocket.send_json({
                     "type": "error",
                     "step": -1,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "data": {"message": "Agent 执行出错", "detail": tb[-500:]},
+                    "data": {"message": "Agent 执行出错", "detail": detail},
                 })
 
     except WebSocketDisconnect:

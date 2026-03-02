@@ -1,6 +1,6 @@
-"""MCP client for mcp-chrome bridge integration."""
+"""MCP client for Browser MCP integration."""
 
-from mcp_client.chrome_client import MCPChromeClient
-from mcp_client.langchain_bridge import get_mcp_chrome_tools
+from mcp_client.browser_mcp_client import BrowserMCPClient
+from mcp_client.langchain_bridge import get_browser_mcp_tools
 
-__all__ = ["MCPChromeClient", "get_mcp_chrome_tools"]
+__all__ = ["BrowserMCPClient", "get_browser_mcp_tools"]

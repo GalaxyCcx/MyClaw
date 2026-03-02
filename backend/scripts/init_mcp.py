@@ -1,4 +1,4 @@
-"""Initialize MCP config - enable mcp-chrome by default for start.bat."""
+"""Initialize MCP config - enable browser-mcp by default for start.bat."""
 from __future__ import annotations
 
 import sys
@@ -12,5 +12,5 @@ if str(BACKEND) not in sys.path:
 from config.mcp_config import set_mcp_enabled
 
 if __name__ == "__main__":
-    set_mcp_enabled("mcp-chrome", True)
-    print("MCP Chrome enabled.")
+    set_mcp_enabled("browser-mcp", True)
+    print("Browser MCP enabled.")
