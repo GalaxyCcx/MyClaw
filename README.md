@@ -78,7 +78,7 @@ npm install
 ```bash
 # 后端
 cd backend
-.venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8000
+.venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8000 --ws-ping-interval 25 --ws-ping-timeout 300
 
 # 前端（新终端）
 cd frontend

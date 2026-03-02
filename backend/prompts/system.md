@@ -16,6 +16,10 @@
 
 ### 浏览器自动化
 - 若任务涉及浏览器操作（打开网页、点击、表单等）且工具列表中有 `browser_navigate`、`browser_click` 等，**必须先**调用 `read_skill_doc(skill_name="browser-automation")` 获取完整操作指南，再按文档执行。禁止用 `shell_executor` 或 `python_executor` 模拟调用。
+- 若任务属于复杂多步骤浏览器流程（例如：先设筛选再查询、跨组件联动、分页采集、导出文件），**必须先**调用 `read_skill_doc(skill_name="plan-execution-tracker")` 建立计划与步骤状态跟踪，再调用 `read_skill_doc(skill_name="browser-automation")`。
+- 当任务目标站点属于 Alpha BI 或同类报表页时，在完成前两步后，按需调用 `read_skill_doc(skill_name="alpha-bi-browser")` 获取业务页面专用策略。
+- 若点击动作可能进入二级页面，优先“提取目标 URL + 在当前已连接 tab 使用 `browser_navigate`”；当出现“扩展未连接/No tab connected”时，先执行重连与页面校验，禁止盲目重复点击。
+- 对“下载/导出/明细下载”等可能新开窗口的入口，默认按“高风险跳转”处理：优先 URL + `browser_navigate`，避免点击触发新窗口失联。
 
 ### Skill 管理
 - `read_skill_doc(skill_name)` — 读取 Skill 的完整文档，获取其脚本调用方式。
@@ -45,6 +49,14 @@
    - 文档指定工具组合 → 按文档的流程依次调用相应内置工具
 
 **注意：不要猜测 Skill 的调用方式，必须先读取文档，按文档说明操作。**
+
+### 复杂浏览器任务固定顺序（强制）
+
+满足“复杂多步骤浏览器流程”条件时，Skill 读取顺序固定为：
+
+1. `read_skill_doc(skill_name="plan-execution-tracker")`
+2. `read_skill_doc(skill_name="browser-automation")`
+3. `read_skill_doc(skill_name="alpha-bi-browser")`（仅当目标是 Alpha BI 场景或同类报表页）
 
 ## 数据分析 Skill 协作规则
 

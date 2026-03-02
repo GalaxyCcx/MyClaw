@@ -12,8 +12,8 @@ def _browser_mcp_available() -> bool:
         from mcp_client import BrowserMCPClient
 
         client = BrowserMCPClient()
-        client.list_tools()
-        return True
+        ok, _ = client.probe_extension_connection()
+        return ok
     except Exception:
         return False
 

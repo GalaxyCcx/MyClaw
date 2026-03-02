@@ -4,6 +4,7 @@ export type EventType =
   | "tool_call"
   | "tool_result"
   | "final_answer"
+  | "agent_stopped"
   | "error"
   | "init_status"
   | "graph_reset"

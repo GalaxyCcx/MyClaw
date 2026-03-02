@@ -7,6 +7,7 @@ from tools.web_fetch import web_fetch
 from tools.web_search import web_search
 from tools.python_executor import python_executor
 from tools.shell_executor import shell_executor
+from tools.check_download_file import check_download_file
 from tools.read_skill_doc import read_skill_doc, read_skill_reference
 
 logger = logging.getLogger(__name__)
@@ -18,6 +19,7 @@ BASE_TOOLS = [
     web_search,
     python_executor,
     shell_executor,
+    check_download_file,
     read_skill_doc,
     read_skill_reference,
 ]
@@ -83,18 +85,24 @@ def get_browser_mcp_init_status():
     last_err = None
     for attempt in range(1, BROWSER_MCP_LOAD_RETRIES + 1):
         try:
-            from mcp_client import get_browser_mcp_tools
+            from mcp_client import BrowserMCPClient, get_browser_mcp_tools
 
             tools = get_browser_mcp_tools()
-            if tools:
-                names = [t.name for t in tools]
+            names = [t.name for t in tools]
+            connected, detail = BrowserMCPClient().probe_extension_connection()
+            if connected:
                 return JobResult(
                     "check_browser_mcp",
                     "success",
-                    f"{len(tools)} tools: {', '.join(names[:5])}{'...' if len(names) > 5 else ''}",
+                    f"{len(tools)} tools, extension connected: {', '.join(names[:5])}{'...' if len(names) > 5 else ''}",
                     0.0,
                 )
-            break
+            return JobResult(
+                "check_browser_mcp",
+                "warning",
+                f"扩展未连接。{detail[:100]} — 请在目标标签页点击 Browser MCP 的 Connect",
+                0.0,
+            )
         except Exception as e:
             last_err = e
             if attempt < BROWSER_MCP_LOAD_RETRIES:
@@ -104,7 +112,7 @@ def get_browser_mcp_init_status():
     return JobResult(
         "check_browser_mcp",
         "warning",
-        f"扩展未连接。{err_msg[:100]} — 请在 Browser MCP 扩展中点击 Connect",
+        f"Browser MCP 不可用。{err_msg[:100]} — 请检查 Node.js/npx 与本地端口占用",
         0.0,
     )
 

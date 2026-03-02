@@ -8,9 +8,10 @@ interface Props {
   isAgentRunning: boolean;
   isConnected: boolean;
   onSend: (content: string) => void;
+  onStop?: () => void;
 }
 
-export default function ChatPanel({ messages, isAgentRunning, isConnected, onSend }: Props) {
+export default function ChatPanel({ messages, isAgentRunning, isConnected, onSend, onStop }: Props) {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       {messages.length === 0 && !isAgentRunning ? (
@@ -18,7 +19,12 @@ export default function ChatPanel({ messages, isAgentRunning, isConnected, onSen
       ) : (
         <MessageList messages={messages} isAgentRunning={isAgentRunning} />
       )}
-      <InputBar onSend={onSend} disabled={isAgentRunning || !isConnected} />
+      <InputBar
+        onSend={onSend}
+        onStop={onStop}
+        isAgentRunning={isAgentRunning}
+        disabled={isAgentRunning || !isConnected}
+      />
     </div>
   );
 }

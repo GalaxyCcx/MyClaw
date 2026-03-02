@@ -29,6 +29,7 @@ CORE_TOOL_NAMES = {
     "browser_go_forward",
     "browser_press_key",
     "browser_select_option",
+    "browser_get_console_logs",
 }
 
 # Heavy tools: per-tool max chars before truncate+save

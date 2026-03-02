@@ -28,6 +28,15 @@ BROWSER_MCP_ENABLED=true
 BROWSER_MCP_TIMEOUT=60
 ```
 
+如需接入本地改造版 Browser MCP（方案 B），可额外设置：
+
+```
+BROWSER_MCP_COMMAND=npx
+BROWSER_MCP_ARGS=-y @browsermcp/mcp@latest
+# 或使用 JSON 形式（优先级更高）
+# BROWSER_MCP_ARGS_JSON=["-y","@browsermcp/mcp@latest"]
+```
+
 前端开关会覆盖 .env 设置并持久化到 `backend/config/mcp.json`。
 
 ### 3. 连接扩展
@@ -60,6 +69,43 @@ BROWSER_MCP_TIMEOUT=60
 1. 在扩展中点击「断开」
 2. 重新点击「Connect」
 3. 若仍失败，重启 Chrome 后再试
+
+### 我安装的是应用商店扩展，如何改造？
+
+应用商店安装包不能直接在线修改。若要实现“新开页面自动接管”等深度能力，建议：
+
+1. 获取 Browser MCP 扩展源码（fork 到你自己的仓库）。
+2. 在 Chrome 打开 `chrome://extensions`，启用开发者模式。
+3. 选择“加载已解压的扩展”，加载你本地编译后的扩展目录。
+4. 禁用商店版扩展，避免两个同类扩展冲突。
+5. 让后端通过 `BROWSER_MCP_COMMAND/BROWSER_MCP_ARGS` 指向你本地改造版服务（如自定义 npm 包或本地 node 启动脚本）。
+
+### 一键生成“开发者补丁版扩展”（推荐）
+
+项目已提供脚本：`scripts/prepare_browsermcp_patched_extension.py`  
+作用：从你本机已安装的 Browser MCP 商店扩展目录复制一份“开发者版副本”，并注入“新开 tab 自动接管”补丁。
+
+执行：
+
+```bash
+python scripts/prepare_browsermcp_patched_extension.py
+```
+
+默认输出目录：
+
+`output/browsermcp-extension-patched`
+
+然后在 Chrome 中：
+
+1. 打开 `chrome://extensions`
+2. 开启“开发者模式”
+3. 禁用商店版 Browser MCP 扩展
+4. 点击“加载已解压的扩展程序”，选择 `output/browsermcp-extension-patched`
+
+说明：
+
+- 该补丁通过监听 `webNavigation.onCreatedNavigationTarget`，当新 tab 来源于当前已连接 tab 时，自动切换控制目标到新 tab。
+- 这是本地补丁，不依赖重新打包商店扩展。
 
 ### BROWSER_MCP_ENABLED 已设置但无浏览器工具
 

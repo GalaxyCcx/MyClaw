@@ -108,7 +108,7 @@ for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":8000 .*LISTENING" 2^>nul') 
 for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":5173 .*LISTENING" 2^>nul') do taskkill /F /PID %%p >nul 2>&1
 
 pushd "%BACKEND%"
-start "MyClaw-Backend" cmd /k "title MyClaw Backend && color 0A && ""%PY%"" -m uvicorn main:app --host 0.0.0.0 --port 8000"
+start "MyClaw-Backend" cmd /k "title MyClaw Backend && color 0A && ""%PY%"" -m uvicorn main:app --host 0.0.0.0 --port 8000 --ws-ping-interval 25 --ws-ping-timeout 300"
 popd
 
 timeout /t 2 /nobreak >nul

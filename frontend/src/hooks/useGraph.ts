@@ -290,6 +290,33 @@ export function useGraph() {
         });
         break;
       }
+
+      case "agent_stopped": {
+        activeSkillRef.current = null;
+        setGraphNodes((prev) =>
+          prev.map((n) =>
+            n.status === "running"
+              ? { ...n, status: "error", data: { ...n.data, stopped: true } }
+              : n,
+          ),
+        );
+        const stopNode: GraphNode = {
+          id: `stop_${Date.now()}`,
+          type: "answer",
+          label: "Stopped",
+          status: "completed",
+          step: event.step,
+          data: { ...(event.data as Record<string, unknown>), turn: turnRef.current },
+        };
+        setGraphNodes((prev) => [...prev, stopNode]);
+        setLastNodeId((prevLast) => {
+          if (prevLast) {
+            setGraphEdges((prevEdges) => addEdge(prevEdges, prevLast, stopNode.id));
+          }
+          return stopNode.id;
+        });
+        break;
+      }
     }
   }, []);
 

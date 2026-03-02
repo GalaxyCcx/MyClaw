@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -288,20 +289,60 @@ async def mcp_browser_status():
     enabled = is_mcp_enabled("browser-mcp")
     tools_loaded = False
     tool_count = 0
+    mcp_process_ready = False
+    extension_connected = False
+    session_id = ""
+    last_success_at = ""
+    last_error_type = ""
+    last_error_message = ""
+    probe_error = ""
     msg = ""
     if enabled:
         try:
-            from mcp_client import get_browser_mcp_tools
+            from mcp_client import (
+                BrowserMCPClient,
+                get_browser_mcp_runtime_status,
+                get_browser_mcp_tools,
+                is_extension_not_connected_error,
+            )
+
+            runtime_status = get_browser_mcp_runtime_status()
+            mcp_process_ready = bool(runtime_status.get("mcp_process_ready"))
+            session_id = str(runtime_status.get("session_id") or "")
+            last_success_at = str(runtime_status.get("last_success_at") or "")
+            last_error_type = str(runtime_status.get("last_error_type") or "")
+            last_error_message = str(runtime_status.get("last_error_message") or "")
+
             tools = get_browser_mcp_tools()
             tools_loaded = True
             tool_count = len(tools)
             msg = "OK"
+
+            extension_connected, probe_error = BrowserMCPClient().probe_extension_connection()
+            if probe_error and not is_extension_not_connected_error(probe_error):
+                msg = "DEGRADED"
+
+            runtime_status = get_browser_mcp_runtime_status()
+            mcp_process_ready = bool(runtime_status.get("mcp_process_ready"))
+            session_id = str(runtime_status.get("session_id") or session_id)
+            last_success_at = str(runtime_status.get("last_success_at") or last_success_at)
+            last_error_type = str(runtime_status.get("last_error_type") or last_error_type)
+            last_error_message = str(runtime_status.get("last_error_message") or last_error_message)
         except Exception as e:
             msg = str(e)
     return {
         "enabled": enabled,
         "tools_loaded": tools_loaded,
         "tool_count": tool_count,
+        "server_command": os.getenv("BROWSER_MCP_COMMAND", "npx"),
+        "server_args": os.getenv("BROWSER_MCP_ARGS", "-y @browsermcp/mcp@latest"),
+        "mcp_process_ready": mcp_process_ready,
+        "extension_connected": extension_connected,
+        "session_id": session_id,
+        "last_success_at": last_success_at,
+        "last_error_type": last_error_type,
+        "last_error_message": last_error_message,
+        "probe_error": probe_error,
         "message": msg,
     }
 
@@ -341,6 +382,89 @@ async def chat_ws(websocket: WebSocket):
     session_id = uuid.uuid4().hex[:12]
     turn_num = 0
     created_at = datetime.now(timezone.utc).isoformat()
+    ws_connected_at = datetime.now(timezone.utc)
+    last_activity_at = ws_connected_at
+    current_turn_task: asyncio.Task | None = None
+    model_name = os.getenv("LLM_MODEL", "qwen-plus")
+    context_limit = MODEL_CONTEXT_LIMITS.get(model_name, DEFAULT_CONTEXT_LIMIT)
+
+    async def _send_event(event_type: str, data: dict, step: int = 0):
+        await websocket.send_json({
+            "type": event_type,
+            "step": step,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "data": data,
+        })
+
+    async def _process_turn(user_content: str, turn_id: int):
+        nonlocal history
+
+        await _send_event("graph_reset", {})
+        await _send_event("user_input", {"content": user_content})
+
+        async def on_event(event: dict):
+            await websocket.send_json(event)
+
+        try:
+            governed_history, governance_events, _ = _govern_history_before_run(
+                history=history,
+                user_content=user_content,
+                model_name=model_name,
+                context_limit=context_limit,
+            )
+            for evt in governance_events:
+                await _send_event(evt["type"], evt["data"])
+
+            round_messages = await run_agent(user_content, on_event, history=governed_history, turn_num=turn_id)
+            history = list(governed_history)
+            history.append({"role": "user", "content": user_content})
+            history.extend(round_messages)
+
+            try:
+                _save_turn(session_id, turn_id, user_content, round_messages, created_at)
+            except Exception as e:
+                logger.warning("Failed to save conversation turn: %s", e)
+            return
+
+        except asyncio.CancelledError:
+            history.append({"role": "user", "content": user_content})
+            history.append({"role": "assistant", "content": "本轮任务已按用户请求手动停止。"})
+            await _send_event("agent_stopped", {"reason": "manual_stop", "turn": turn_id})
+            return
+
+        except Exception as run_err:
+            policy = load_context_policy()
+            if is_context_overflow(run_err) and policy.max_retry_on_overflow > 0:
+                retry_history, compact_stats = compact_history(
+                    history,
+                    preserve_recent_turns=policy.preserve_recent_turns,
+                    model_name=model_name,
+                )
+                await _send_event("context_compacted", {
+                    "before_tokens": compact_stats.get("before_tokens", 0),
+                    "after_tokens": compact_stats.get("after_tokens", 0),
+                    "summary_chars": compact_stats.get("summary_chars", 0),
+                    "compacted_turns": compact_stats.get("compacted_turns", 0),
+                })
+                try:
+                    round_messages = await run_agent(user_content, on_event, history=retry_history, turn_num=turn_id)
+                    history = list(retry_history)
+                    history.append({"role": "user", "content": user_content})
+                    history.extend(round_messages)
+                    await _send_event("overflow_recovered", {"retry_count": 1, "success": True, "reason": "context_overflow"})
+                    try:
+                        _save_turn(session_id, turn_id, user_content, round_messages, created_at)
+                    except Exception as e:
+                        logger.warning("Failed to save conversation turn after retry: %s", e)
+                    return
+                except Exception:
+                    await _send_event("overflow_recovered", {"retry_count": 1, "success": False, "reason": "context_overflow"})
+
+            tb = traceback.format_exc()
+            logger.error("Agent error: %s", tb)
+            detail = _extract_user_friendly_error(run_err)
+            await _send_event("error", {"message": "Agent 执行出错", "detail": detail}, step=-1)
+            return
 
     try:
         loader = get_skill_loader()
@@ -352,8 +476,6 @@ async def chat_ws(websocket: WebSocket):
             for s in loader.loaded_skills
         ]
         assembled_prompt = _build_system_prompt()
-        model_name = os.getenv("LLM_MODEL", "qwen-plus")
-        context_limit = MODEL_CONTEXT_LIMITS.get(model_name, DEFAULT_CONTEXT_LIMIT)
         payload = {
             "type": "init_status",
             "step": 0,
@@ -392,112 +514,84 @@ async def chat_ws(websocket: WebSocket):
 
     try:
         while True:
+            if current_turn_task and current_turn_task.done():
+                try:
+                    current_turn_task.result()
+                except Exception:
+                    logger.exception("Background turn task failed (session=%s)", session_id)
+                current_turn_task = None
+
             raw = await websocket.receive_text()
+            last_activity_at = datetime.now(timezone.utc)
+
+            msg_type = "user_input"
+            user_content = ""
             try:
                 msg = json.loads(raw)
-                user_content = msg.get("data", {}).get("content", "")
+                msg_type = str(msg.get("type", "user_input"))
+                if msg_type == "user_input":
+                    user_content = str(msg.get("data", {}).get("content", "") or "")
             except (json.JSONDecodeError, AttributeError):
                 user_content = raw.strip()
+
+            if msg_type == "stop":
+                if current_turn_task and not current_turn_task.done():
+                    current_turn_task.cancel()
+                    try:
+                        await current_turn_task
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception:
+                        logger.exception("Failed to stop running turn (session=%s)", session_id)
+                    current_turn_task = None
+                else:
+                    await _send_event("agent_stopped", {"reason": "idle", "turn": turn_num})
+                continue
+
+            if msg_type != "user_input":
+                continue
 
             if not user_content:
                 continue
 
+            if current_turn_task and not current_turn_task.done():
+                await _send_event("error", {
+                    "message": "当前任务仍在执行，请先停止或等待完成",
+                    "detail": "busy",
+                }, step=-1)
+                continue
+
             turn_num += 1
+            current_turn_task = asyncio.create_task(_process_turn(user_content, turn_num))
 
-            await websocket.send_json({
-                "type": "graph_reset",
-                "step": 0,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "data": {},
-            })
-
-            await websocket.send_json({
-                "type": "user_input",
-                "step": 0,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "data": {"content": user_content},
-            })
-
-            async def on_event(event: dict):
-                await websocket.send_json(event)
-
+    except WebSocketDisconnect as e:
+        if current_turn_task and not current_turn_task.done():
+            current_turn_task.cancel()
             try:
-                governed_history, governance_events, _ = _govern_history_before_run(
-                    history=history,
-                    user_content=user_content,
-                    model_name=model_name,
-                    context_limit=context_limit,
-                )
-                for evt in governance_events:
-                    await websocket.send_json({
-                        "type": evt["type"],
-                        "step": 0,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "data": evt["data"],
-                    })
-
-                round_messages = await run_agent(user_content, on_event, history=governed_history, turn_num=turn_num)
-                history = list(governed_history)
-                history.append({"role": "user", "content": user_content})
-                history.extend(round_messages)
-
-                try:
-                    _save_turn(session_id, turn_num, user_content, round_messages, created_at)
-                except Exception as e:
-                    logger.warning("Failed to save conversation turn: %s", e)
-
-            except Exception as run_err:
-                policy = load_context_policy()
-                if is_context_overflow(run_err) and policy.max_retry_on_overflow > 0:
-                    retry_history, compact_stats = compact_history(
-                        history,
-                        preserve_recent_turns=policy.preserve_recent_turns,
-                        model_name=model_name,
-                    )
-                    await websocket.send_json({
-                        "type": "context_compacted",
-                        "step": 0,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                        "data": {
-                            "before_tokens": compact_stats.get("before_tokens", 0),
-                            "after_tokens": compact_stats.get("after_tokens", 0),
-                            "summary_chars": compact_stats.get("summary_chars", 0),
-                            "compacted_turns": compact_stats.get("compacted_turns", 0),
-                        },
-                    })
-                    try:
-                        round_messages = await run_agent(user_content, on_event, history=retry_history, turn_num=turn_num)
-                        history = list(retry_history)
-                        history.append({"role": "user", "content": user_content})
-                        history.extend(round_messages)
-                        await websocket.send_json({
-                            "type": "overflow_recovered",
-                            "step": 0,
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                            "data": {"retry_count": 1, "success": True, "reason": "context_overflow"},
-                        })
-                        try:
-                            _save_turn(session_id, turn_num, user_content, round_messages, created_at)
-                        except Exception as e:
-                            logger.warning("Failed to save conversation turn after retry: %s", e)
-                        continue
-                    except Exception:
-                        await websocket.send_json({
-                            "type": "overflow_recovered",
-                            "step": 0,
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                            "data": {"retry_count": 1, "success": False, "reason": "context_overflow"},
-                        })
-
-                tb = traceback.format_exc()
-                logger.error("Agent error: %s", tb)
-                detail = _extract_user_friendly_error(run_err)
-                await websocket.send_json({
-                    "type": "error",
-                    "step": -1,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "data": {"message": "Agent 执行出错", "detail": detail},
-                })
-
-    except WebSocketDisconnect:
-        logger.info("WebSocket client disconnected (session=%s, turns=%d)", session_id, turn_num)
+                await current_turn_task
+            except Exception:
+                pass
+        now = datetime.now(timezone.utc)
+        alive_seconds = round((now - ws_connected_at).total_seconds(), 1)
+        idle_seconds = round((now - last_activity_at).total_seconds(), 1)
+        logger.info(
+            "WebSocket client disconnected (session=%s, turns=%d, code=%s, reason=%s, alive_seconds=%s, idle_seconds=%s)",
+            session_id,
+            turn_num,
+            getattr(e, "code", "unknown"),
+            getattr(e, "reason", "") or "",
+            alive_seconds,
+            idle_seconds,
+        )
+    except Exception:
+        if current_turn_task and not current_turn_task.done():
+            current_turn_task.cancel()
+            try:
+                await current_turn_task
+            except Exception:
+                pass
+        logger.exception(
+            "WebSocket chat loop crashed (session=%s, turns=%d)",
+            session_id,
+            turn_num,
+        )

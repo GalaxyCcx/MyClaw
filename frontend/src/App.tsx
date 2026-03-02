@@ -1,5 +1,5 @@
 import { Layout, Typography, Tag, Button, Alert } from "antd";
-import { ClearOutlined, SettingOutlined } from "@ant-design/icons";
+import { ClearOutlined, SettingOutlined, PauseCircleOutlined } from "@ant-design/icons";
 import { useCallback, useRef, useState } from "react";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useGraph } from "./hooks/useGraph";
@@ -19,7 +19,15 @@ const MIN_PANEL_PCT = 20;
 
 function App() {
   const graph = useGraph();
-  const { status, messages, isAgentRunning, sendMessage, clearMessages } =
+  const {
+    status,
+    messages,
+    isAgentRunning,
+    connectionStats,
+    sendMessage,
+    stopConversation,
+    clearMessages,
+  } =
     useWebSocket(WS_URL, graph.handleGraphEvent);
 
   const [leftPct, setLeftPct] = useState(50);
@@ -58,6 +66,20 @@ function App() {
       : status === "connecting"
         ? "orange"
         : "red";
+  const needManualIntervention =
+    status === "disconnected" && connectionStats.reconnectCount >= 3;
+  const disconnectDescriptionParts = [
+    connectionStats.lastCloseCode !== null
+      ? `close code: ${connectionStats.lastCloseCode}`
+      : "",
+    connectionStats.lastCloseReason
+      ? `reason: ${connectionStats.lastCloseReason}`
+      : "",
+    connectionStats.lastDisconnectAt
+      ? `last disconnect: ${connectionStats.lastDisconnectAt}`
+      : "",
+    `reconnect attempts: ${connectionStats.reconnectCount}`,
+  ].filter(Boolean);
 
   return (
     <Layout style={{ height: "100vh" }}>
@@ -92,6 +114,14 @@ function App() {
           </Button>
           <Button
             size="small"
+            icon={<PauseCircleOutlined />}
+            onClick={stopConversation}
+            disabled={!isAgentRunning || status !== "connected"}
+          >
+            停止对话
+          </Button>
+          <Button
+            size="small"
             icon={<ClearOutlined />}
             onClick={clearMessages}
             disabled={messages.length === 0 || isAgentRunning}
@@ -102,8 +132,13 @@ function App() {
       </Header>
       {status === "disconnected" && (
         <Alert
-          type="error"
-          message="WebSocket 连接已断开，正在尝试重连..."
+          type={needManualIntervention ? "warning" : "error"}
+          message={
+            needManualIntervention
+              ? "WebSocket 多次重连失败，请检查网络或重启后端服务"
+              : "WebSocket 连接已断开，正在自动重连..."
+          }
+          description={disconnectDescriptionParts.join(" | ")}
           banner
           showIcon
         />
@@ -129,6 +164,7 @@ function App() {
               isAgentRunning={isAgentRunning}
               isConnected={status === "connected"}
               onSend={sendMessage}
+              onStop={stopConversation}
             />
           </div>
           <div

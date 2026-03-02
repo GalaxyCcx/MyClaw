@@ -12,6 +12,7 @@ const GRAPH_EVENTS = new Set([
   "context_pruned",
   "context_compacted",
   "overflow_recovered",
+  "agent_stopped",
 ]);
 
 const CHAT_IGNORE = new Set([
@@ -23,6 +24,7 @@ const CHAT_IGNORE = new Set([
   "context_pruned",
   "context_compacted",
   "overflow_recovered",
+  "agent_stopped",
 ]);
 
 let msgIdCounter = 0;
@@ -34,14 +36,33 @@ const STREAMING_ID = "__streaming__";
 
 export type GraphEventHandler = (event: AgentEvent) => void;
 
+type ConnectionStats = {
+  reconnectCount: number;
+  lastDisconnectAt: string | null;
+  lastCloseCode: number | null;
+  lastCloseReason: string | null;
+  lastErrorAt: string | null;
+};
+
 export function useWebSocket(
   url: string,
   onGraphEvent?: GraphEventHandler,
 ) {
   const wsRef = useRef<WebSocket | null>(null);
+  const shouldReconnectRef = useRef(true);
+  const manualCloseRef = useRef(false);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const reconnectCountRef = useRef(0);
   const [status, setStatus] = useState<Status>("disconnected");
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [isAgentRunning, setIsAgentRunning] = useState(false);
+  const [connectionStats, setConnectionStats] = useState<ConnectionStats>({
+    reconnectCount: 0,
+    lastDisconnectAt: null,
+    lastCloseCode: null,
+    lastCloseReason: null,
+    lastErrorAt: null,
+  });
   const streamingContentRef = useRef("");
   const onGraphEventRef = useRef(onGraphEvent);
   onGraphEventRef.current = onGraphEvent;
@@ -53,6 +74,10 @@ export function useWebSocket(
     const ws = new WebSocket(url);
 
     ws.onopen = () => {
+      if (reconnectTimerRef.current !== null) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       setStatus("connected");
     };
 
@@ -66,6 +91,29 @@ export function useWebSocket(
 
         if (event.type === "tool_call" || event.type === "tool_result" || event.type === "final_answer") {
           onGraphEventRef.current?.(event);
+        }
+
+        if (event.type === "agent_stopped") {
+          const partial = streamingContentRef.current.trim();
+          streamingContentRef.current = "";
+          setMessages((prev) => {
+            const filtered = prev.filter((m) => m.id !== STREAMING_ID);
+            const stopMsg = partial
+              ? `${partial}\n\n（已手动停止本轮对话）`
+              : "已手动停止本轮对话，你可以继续提问，我会基于当前历史继续。";
+            return [
+              ...filtered,
+              {
+                id: nextId(),
+                type: "final_answer",
+                step: event.step,
+                timestamp: event.timestamp,
+                data: { content: stopMsg },
+              },
+            ];
+          });
+          setIsAgentRunning(false);
+          return;
         }
 
         if (CHAT_IGNORE.has(event.type)) {
@@ -149,13 +197,40 @@ export function useWebSocket(
       }
     };
 
-    ws.onclose = () => {
-      setStatus("disconnected");
+    ws.onclose = (event) => {
+      const disconnectedAt = new Date().toISOString();
+      const wasManualClose = manualCloseRef.current;
+      if (!wasManualClose) {
+        setStatus("disconnected");
+      } else {
+        manualCloseRef.current = false;
+      }
       setIsAgentRunning(false);
-      setTimeout(() => connect(), 3000);
+      setConnectionStats((prev) => ({
+        ...prev,
+        lastDisconnectAt: disconnectedAt,
+        lastCloseCode: event.code ?? null,
+        lastCloseReason: event.reason || null,
+      }));
+
+      if (shouldReconnectRef.current && !wasManualClose) {
+        reconnectCountRef.current += 1;
+        setConnectionStats((prev) => ({
+          ...prev,
+          reconnectCount: reconnectCountRef.current,
+        }));
+        reconnectTimerRef.current = window.setTimeout(() => {
+          setStatus("connecting");
+          connect();
+        }, 3000);
+      }
     };
 
     ws.onerror = () => {
+      setConnectionStats((prev) => ({
+        ...prev,
+        lastErrorAt: new Date().toISOString(),
+      }));
       ws.close();
     };
 
@@ -184,16 +259,37 @@ export function useWebSocket(
   const clearMessages = useCallback(() => {
     setMessages([]);
     streamingContentRef.current = "";
+    manualCloseRef.current = true;
     wsRef.current?.close();
     setTimeout(() => connect(), 200);
   }, [connect]);
 
+  const stopConversation = useCallback(() => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    wsRef.current.send(JSON.stringify({ type: "stop", data: {} }));
+  }, []);
+
   useEffect(() => {
+    shouldReconnectRef.current = true;
     connect();
     return () => {
+      shouldReconnectRef.current = false;
+      manualCloseRef.current = true;
+      if (reconnectTimerRef.current !== null) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       wsRef.current?.close();
     };
   }, [connect]);
 
-  return { status, messages, isAgentRunning, sendMessage, clearMessages };
+  return {
+    status,
+    messages,
+    isAgentRunning,
+    connectionStats,
+    sendMessage,
+    stopConversation,
+    clearMessages,
+  };
 }

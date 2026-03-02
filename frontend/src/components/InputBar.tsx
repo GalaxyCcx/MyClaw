@@ -1,13 +1,15 @@
 import { Button, Input } from "antd";
-import { SendOutlined } from "@ant-design/icons";
+import { SendOutlined, PauseCircleOutlined } from "@ant-design/icons";
 import { useState } from "react";
 
 interface InputBarProps {
   onSend: (content: string) => void;
+  onStop?: () => void;
+  isAgentRunning?: boolean;
   disabled?: boolean;
 }
 
-export default function InputBar({ onSend, disabled }: InputBarProps) {
+export default function InputBar({ onSend, onStop, isAgentRunning, disabled }: InputBarProps) {
   const [value, setValue] = useState("");
 
   const handleSend = () => {
@@ -51,6 +53,15 @@ export default function InputBar({ onSend, disabled }: InputBarProps) {
         style={{ alignSelf: "flex-end" }}
       >
         发送
+      </Button>
+      <Button
+        danger
+        icon={<PauseCircleOutlined />}
+        onClick={onStop}
+        disabled={!isAgentRunning}
+        style={{ alignSelf: "flex-end" }}
+      >
+        停止
       </Button>
     </div>
   );
