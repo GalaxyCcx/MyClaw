@@ -238,7 +238,12 @@ function collectMarks(payload = {}) {
     if (viewportOnly && (rect.width <= 0 || rect.height <= 0)) continue;
     const tag = String(el.tagName || "").toLowerCase();
     const role = String(el.getAttribute("role") || "");
-    const text = normText(el.innerText || el.textContent || "").slice(0, 80);
+    let text = "";
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
+      text = normText(el.value || el.getAttribute("placeholder") || el.getAttribute("aria-label") || "").slice(0, 80);
+    } else {
+      text = normText(el.innerText || el.textContent || el.getAttribute("aria-label") || "").slice(0, 80);
+    }
     let score = 0;
     const area = rect.width * rect.height;
     const isSemantic = ["input", "textarea", "select", "button", "a"].includes(tag) || String(role).length > 0;

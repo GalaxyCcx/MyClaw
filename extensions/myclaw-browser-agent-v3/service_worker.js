@@ -10,6 +10,10 @@ let heartbeatTimer = null;
 let attachedTabId = null;
 const TAB_STATE = new Map(); // tabId -> { marks, frameId }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms || 0))));
+}
+
 function log(...args) {
   console.log("[myclaw-vision-v3]", ...args);
 }
@@ -69,18 +73,39 @@ async function sendToFrame(tabId, frameId, action, payload) {
   }
 }
 
-async function sendToPreferredFrame(tabId, action, payload, preferredFrameId = null) {
-  const frameIds = await listFrameIds(tabId);
-  const order = [];
-  if (typeof preferredFrameId === "number") order.push(preferredFrameId);
-  if (!order.includes(0)) order.push(0);
-  for (const fid of frameIds) if (!order.includes(fid)) order.push(fid);
+async function ensureContentScriptInjected(tabId) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      files: ["content_script.js"],
+    });
+  } catch (_err) {
+    // ignore; content script may already be present or host may block some frames
+  }
+}
 
+async function sendToPreferredFrame(tabId, action, payload, preferredFrameId = null) {
   let lastErr = null;
-  for (const frameId of order) {
-    const r = await sendToFrame(tabId, frameId, action, payload || {});
-    if (r && r.ok) return r;
-    lastErr = r;
+  for (let round = 0; round < 3; round += 1) {
+    const frameIds = await listFrameIds(tabId);
+    const order = [];
+    if (typeof preferredFrameId === "number") order.push(preferredFrameId);
+    if (!order.includes(0)) order.push(0);
+    for (const fid of frameIds) if (!order.includes(fid)) order.push(fid);
+
+    for (const frameId of order) {
+      const r = await sendToFrame(tabId, frameId, action, payload || {});
+      if (r && r.ok) return r;
+      lastErr = r;
+    }
+
+    const msg = String((lastErr && lastErr.message) || "").toLowerCase();
+    const recoverable =
+      (lastErr && lastErr.error_code === "frame_send_failed") &&
+      (msg.includes("receiving end does not exist") || msg.includes("could not establish connection"));
+    if (!recoverable) break;
+    await ensureContentScriptInjected(tabId);
+    await sleep(300 + round * 250);
   }
   return lastErr || { ok: false, error_code: "no_frame_result", message: "no frame returned usable result" };
 }

@@ -31,8 +31,17 @@ Vision-first browser extension for MyClaw.
   - Click center point of mark label (for example `a1`)
 - `vision_type_label`
   - Click label target then type text into active element
+- `vision_scroll_by`
+  - Scroll current best scroll container by `dy`
+- `vision_wait_stable`
+  - Wait for DOM/layout/loading signals to stabilize
 - `vision_clear_marks`
 - `screenshot` (plain visible viewport screenshot)
+
+## Design Boundary
+
+- Keep only generic browser primitives in extension
+- Do not include page/component-specific actions (for example date-picker custom flows)
 
 ## Marks Schema
 
