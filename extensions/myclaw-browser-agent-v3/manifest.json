@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "MyClaw Browser Agent v3",
+  "version": "0.1.0",
+  "description": "Vision-first browser executor with labeled screenshot actions.",
+  "permissions": [
+    "tabs",
+    "scripting",
+    "activeTab",
+    "storage",
+    "webNavigation",
+    "debugger"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "service_worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content_script.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "action": {
+    "default_title": "MyClaw Browser Agent v3"
+  }
+}

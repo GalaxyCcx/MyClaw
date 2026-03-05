@@ -51,6 +51,13 @@ SUPPORTED_ACTIONS: set[str] = {
     "screenshot",
     "download_status",
     "download_latest",
+    "get_url",
+    "vision_capture_marked",
+    "vision_click_label",
+    "vision_type_label",
+    "vision_clear_marks",
+    "vision_scroll_by",
+    "vision_wait_stable",
 }
 
 
