@@ -11,10 +11,21 @@ interface Props {
 
 export default function MCPSection({ onToggle }: Props) {
   const [mcps, setMcps] = useState<MCPInfo[]>([]);
+  const [legacyMode, setLegacyMode] = useState(true);
   const [loading, setLoading] = useState(false);
 
   const fetchMcps = async () => {
     try {
+      const channelResp = await fetch("/api/browser/channel");
+      if (channelResp.ok) {
+        const channel = await channelResp.json();
+        const isLegacy = channel.transport === "legacy_mcp";
+        setLegacyMode(isLegacy);
+        if (!isLegacy) {
+          setMcps([]);
+          return;
+        }
+      }
       const r = await fetch("/api/mcp");
       const data = await r.json();
       setMcps(data.mcps || []);
@@ -48,7 +59,7 @@ export default function MCPSection({ onToggle }: Props) {
     }
   };
 
-  if (mcps.length === 0) return null;
+  if (!legacyMode || mcps.length === 0) return null;
 
   return (
     <div style={{ marginBottom: 8 }}>

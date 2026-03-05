@@ -7,6 +7,19 @@
 
 ## 标准操作流程
 
+### 流程 A：get_dropdown_options（推荐，扩展 v2 支持时）
+
+1. 先锚定目标区块（示例：`<目标章节标题>` + `<目标表/模块标题>`）。
+2. 点击该区块的 `<目标字段>` 下拉展开选项列表。
+3. `browser_wait` 0.3~0.4 秒。
+4. `get_dropdown_options` 获取 `{ options: [{ handle, text, value }] }`。
+5. 按目标文本匹配（优先精确，其次包含），取 matched 的 handle。
+6. `click({ locator: { handle } })` 点击目标选项。
+7. `browser_wait` 0.2~0.5 秒。
+8. 强校验：字段展示值必须等于目标值；否则视为失败并进入恢复流程。
+
+### 流程 B：snapshot + elements（v1 或 elements 可用时）
+
 1. 先锚定目标区块（示例：`<目标章节标题>` + `<目标表/模块标题>`）。
 2. `browser_snapshot` 获取该区块内目标字段（示例：`<目标字段>`）下拉 ref。
 3. 点击该下拉展开选项列表。
@@ -14,6 +27,8 @@
 5. 点击目标选项（示例：`<目标选项>`）。
 6. `browser_wait` 0.2~0.5 秒。
 7. 强校验：字段展示值必须等于目标值；否则视为失败并进入恢复流程。
+
+注：v2 扩展的 snapshot 不返回 elements，故优先使用流程 A。
 
 ## 单选字段示例模板（强约束）
 
@@ -30,6 +45,27 @@
 1. 区块锚定（标题/表名）+ 字段文本
 2. 下拉框当前展示文本
 3. 展开后选项的 ref + 文本
+
+## 区块锚定示例（trigger_locator）
+
+多个同名下拉时，用 `within` 限定区块：
+
+```json
+{
+  "selector": ".ant-select",
+  "within": {"text": "二、问题定位"},
+  "index": 0
+}
+```
+
+- `within.text`：区块标题/锚点文本（如「一、核心指标」「二、问题定位」）
+- 扩展会先找到包含该文本的容器，再在其内查找 `.ant-select`
+- `index`：二、问题定位 区块内，0=品类组、1=聚合维度
+
+## 对应 Job
+
+- `POST /api/browser/jobs/alpha-bi/select-dropdown`
+- 请求：`{ trigger_locator, target_value, url?, wait_after_navigate_ms? }`
 
 ## 组件元素特征（可固定）
 

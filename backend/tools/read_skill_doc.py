@@ -7,7 +7,7 @@ from agent.skill_loader import get_skill_loader
 def read_skill_doc(skill_name: str) -> str:
     """读取指定 Skill 的完整文档（SKILL.md），包含该 skill 提供的所有工具的详细说明和调用命令。
     当你在 system prompt 的 <available_skills> 中看到某个 skill，并判断它可能帮助完成用户任务时，
-    必须先调用此工具获取完整文档，了解具体的脚本调用命令和参数，然后使用 shell_executor 执行相应命令。
+    必须先调用此工具获取完整文档，再按文档约定调用对应工具执行（不限定 shell_executor）。
     参数 skill_name 为 skill 的名称（如 'datetime-skill'）。"""
     loader = get_skill_loader()
     doc = loader.get_skill_doc(skill_name)

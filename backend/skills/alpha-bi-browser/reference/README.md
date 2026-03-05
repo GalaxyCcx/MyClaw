@@ -5,6 +5,9 @@
 
 ## 组件清单
 
+- 表清单与定位路径：`tables.md`
+- 页面元素映射：`page-element-map.md`
+- 全元素操作矩阵：`operation-matrix.md`
 - 日期范围选择器：`date-range-picker.md`
 - 单选下拉组件：`single-select.md`
 - 多选下拉组件：`multi-select.md`
@@ -15,11 +18,12 @@
 
 ## 使用顺序建议
 
-1. 先读 `date-range-picker.md`（最容易失败的环节）
-2. 再读 `single-select.md`（多同名字段时最易串位）
-3. 根据筛选需求读取多选/复选文档
-3. 查询后读取 `table-pagination.md`
-4. 任何异常统一回看 `error-recovery.md`
+1. 先读 `workflow-gate.md`（先计划、再读 reference、再执行）
+2. 再读 `page-element-map.md`（先识别元素类型与定位策略）
+3. 再读 `operation-matrix.md`（选动作模板）
+4. 按计划步骤读取对应组件文档（日期/单选/多选/复选/查询/分页）
+5. 每步执行后输出 `before -> after -> verified`
+6. 任何异常统一回看 `error-recovery.md`
 
 ## 速度优化清单
 
@@ -42,4 +46,5 @@
 
 - 新组件新增一个独立 markdown 文件，不在本文件堆叠细节。
 - 组件文档统一包含：识别特征、标准步骤、备用策略、失败信号。
+- 页面级元素映射需同步维护“定位优先级 + 后置校验 + 失败信号”三件套。
 - 仅保留稳定策略，删除临时页面特化选择器。

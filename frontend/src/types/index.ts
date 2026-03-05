@@ -94,6 +94,7 @@ export interface InitStatusData {
   system_prompt?: string;
   model_name?: string;
   context_limit?: number;
+  browser_transport?: "legacy_mcp" | "native_extension" | string;
 }
 
 export interface NodeEnterData {

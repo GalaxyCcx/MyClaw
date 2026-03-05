@@ -41,6 +41,28 @@ MODEL_CONTEXT_LIMITS: dict[str, int] = {
 }
 DEFAULT_CONTEXT_LIMIT = 131072
 
+DEPRECATED_BROWSER_SKILLS: set[str] = set()
+
+
+def _is_tool_error_content(content: Any) -> bool:
+    raw = str(content or "").strip()
+    if not raw:
+        return False
+    # read_skill_doc/read_skill_reference 成功结果以该前缀返回，避免误判。
+    if raw.startswith("=== Skill '"):
+        return False
+    text = raw.lower()
+    if not text:
+        return False
+    return (
+        text.startswith("错误")
+        or text.startswith("error")
+        or text.startswith("failed")
+        or "timeout" in text
+        or "element not found" in text
+        or "stale" in text
+    )
+
 
 def _extract_token_usage(ai_msg) -> dict[str, int] | None:
     """Extract token usage from a LangChain AIMessage if available."""
@@ -78,8 +100,19 @@ def _build_system_prompt() -> str:
     base = load_system_prompt()
     today = datetime.now().strftime("%Y-%m-%d %A")
     base = f"当前日期：{today}\n\n{base}"
+    transport = (os.getenv("BROWSER_TRANSPORT", "legacy_mcp") or "legacy_mcp").strip().lower()
+    if transport == "native_extension":
+        base += (
+            "\n\n<browser_runtime_policy>\n"
+            "- 当前浏览器通道为 native_extension。\n"
+            "- 浏览器控制能力以内建工具策略为准；复杂页面优先读取页面专用 Skill。\n"
+            "- 当目标为 Alpha BI 页面时，先读 alpha-bi-browser 主文档，再按需读取 reference 文档。\n"
+            "</browser_runtime_policy>"
+        )
     loader = get_skill_loader()
     skills = loader.loaded_skills
+    if transport == "native_extension":
+        skills = [s for s in skills if s.name not in DEPRECATED_BROWSER_SKILLS]
     if skills:
         lines = ["", "", "<available_skills>"]
         for s in skills:
@@ -222,7 +255,7 @@ async def run_agent(
                     content = getattr(tm, "content", "")
                     name = getattr(tm, "name", "")
                     tool_call_id = getattr(tm, "tool_call_id", "")
-                    status = "error" if content.startswith("错误") else "success"
+                    status = "error" if _is_tool_error_content(content) else "success"
 
                     tool_start = time.perf_counter()
                     await on_event(_make_event("node_enter", {

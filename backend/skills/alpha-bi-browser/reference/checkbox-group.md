@@ -5,6 +5,12 @@
 - 常见于“聚合维度”区域
 - 选项示例：地区、城市、采一、采二、采三
 
+## 对应 Job
+
+- `POST /api/browser/jobs/alpha-bi/select-checkbox-group`
+- 请求：`{ within_text: str, option_texts: list[str], url?: str, wait_after_navigate_ms?: int }`
+- 逻辑：navigate → wait → 对每个 option_text，在 within_text 区块内 locate + click
+
 ## 标准操作流程
 
 1. `browser_snapshot` 获取复选组及各项状态。

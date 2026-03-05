@@ -1,22 +1,22 @@
 ---
 name: alpha-bi-browser
 description: >-
-  面向 Alpha BI 报表页面的 Browser MCP 自动化流程。处理日期范围选择器（当期/对比期）、
+  面向 Alpha BI 报表页面的浏览器自动化流程（native_extension）。处理日期范围选择器（当期/对比期）、
   单选/多选筛选器、聚合维度勾选、查询按钮、结果表翻页与数据采集。适用于用户提到
   Alpha BI、报表筛选、日期组件、查询、贡献拆解、导出明细等场景。
 metadata:
   author: MyClaw
-  version: "1.0.0"
-  tags: [alpha-bi, browser-mcp, ant-design, date-range, report]
+  version: "1.2.0"
+  tags: [alpha-bi, native-extension, ant-design, date-range, report, page-source-driven]
 ---
 
 # Alpha BI Browser Skill
 
-用于在 Alpha BI 报表页执行稳定、可复现的筛选与读取流程，基于 Browser MCP 工具。
+用于在 Alpha BI 报表页执行稳定、可复现的筛选与读取流程，基于原生浏览器扩展通道工具。
 
 ## 前置条件
 
-- 已启用 Browser MCP，且目标标签页已在扩展中 `Connect`
+- 已启用 `native_extension` 浏览器通道，且扩展状态为已连接
 - 页面已登录（若出现登录页，先提示用户手动登录）
 - 优先在同一个已连接 tab 内执行 `browser_navigate`
 
@@ -30,10 +30,69 @@ metadata:
 6. 日期范围必须在同一次面板会话完成：选开始后不关闭面板，直接选结束。
 7. 每个关键动作后必须做状态校验，不通过则禁止进入下一步。
 8. 涉及二级页面时，优先在当前已连接 tab 内 `browser_navigate`，避免点击触发新开 tab。
-9. 发生“扩展未连接/No tab connected”后，先走重连校验流程，禁止直接重复原点击。
+9. 发生“浏览器通道未连接/目标标签页不可用”后，先走通道恢复流程，禁止直接重复原点击。
 10. 采用“流程门控 + 组件特征”混合定位：可固定组件模式，不可写死页面级绝对路径和临时 ref。
 11. 下载/导出相关入口默认视为“可能新开窗口”，优先提取 URL 后 `browser_navigate`；若无法提取 URL，允许 1 次点击探测并立即校验连接状态。
 12. 下载类任务完成标准必须包含“本地文件落盘验证”；仅任务中心“已成功”或点击下载按钮不视为最终成功。
+13. 同名“查询”按钮禁止直接 `text` 点击；必须先锚定目标区块并使用 `ref` 点击。
+14. 日期填写必须输出“填前值/填后值”校验证据；值未变化判定为失败。
+15. 对页面控件执行动作前，先按 `reference/page-element-map.md` 识别控件类型，再选择对应动作模板。
+16. 任意动作返回 `ok=true` 但未通过“后置可观测校验”时，统一判定为失败，不得输出成功结论。
+17. 进入 Alpha BI 页面并完成首个 `browser_snapshot` 后，必须先产出“执行计划（步骤清单）”，未产出计划不得执行点击/输入。
+18. 计划产出后，必须按计划步骤逐条读取对应 `reference/*.md`，读取后方可执行该步骤动作。
+19. 若步骤与已读取 reference 不一致，必须先补读 reference，再继续执行。
+20. 当步骤序列已稳定且可提前确定时，优先使用 `browser_run_plan` 批量执行，避免逐步 wait/snapshot 往返。
+21. Alpha BI 页面已启用执行器门控：关键单步动作（click/type/select_option/hover/press_key）若未走 `browser_run_plan` 将被网关拒绝。
+
+## 页面源码识别特征（基于目标页源码）
+
+以下特征来自你提供的目标页面源码，可作为稳定识别信号：
+
+- 根节点：`html#htmlRoot[lang="zh_CN"][data-theme]`
+- UI 体系：Ant Design（可见大量 `ant-*` 结构与 `anticon` 图标样式）
+- 交互模式：筛选区 + 查询按钮 + 表格/分页 + 下载动作
+
+执行要求：
+
+1. 允许固定“组件模式特征”（如 `ant-select`、`ant-btn-primary`、`ant-table`、`ant-pagination`）。
+2. 禁止固定“页面级绝对路径”和“临时 ref 值”。
+3. 所有同名控件必须“区块锚定后再取 ref”。
+
+## 全元素覆盖范围（页面专用）
+
+本 Skill 要覆盖并支持以下所有可操作元素类别：
+
+1. 日期范围：当期/对比期开始与结束。
+2. 单选下拉：品类组、聚合维度等。
+3. 多选下拉：大区、城市等多值筛选。
+4. 复选组：维度勾选（地区/城市/采一/采二/采三等）。
+5. 查询按钮：区块内主查询动作。
+6. 表格区：表头识别、行读取、空态识别。
+7. 分页区：页码、下一页、末页判定。
+8. 下载/导出入口：下载触发与本地落盘验证。
+
+## Alpha BI 固定 Workflow（强制）
+
+用于约束“先计划、再读 reference、再执行”：
+
+1. `browser_navigate` + `browser_snapshot(summary)` 完成页面识别。
+2. 输出**本次执行计划**（步骤编号 + 目标 + 验收信号）。
+3. 按步骤逐条读取对应 reference 文档（见下方“步骤到 reference 映射”）。
+4. 每步执行遵循：`snapshot -> 锚定区块 -> 取 ref -> 操作 -> 校验`。
+5. 每步结束输出：`before -> after -> verified`。
+6. 任一步失败时，读取 `reference/error-recovery.md`，完成分流后再决定重试。
+7. 未读取 reference 即直接执行动作，视为流程违规，必须回退到步骤 3。
+
+### 步骤到 reference 映射（必须遵守）
+
+- 日期步骤：`reference/date-range-picker.md`
+- 单选步骤：`reference/single-select.md`
+- 多选步骤：`reference/multi-select.md`
+- 复选步骤：`reference/checkbox-group.md`
+- 查询步骤：`reference/query-button.md`
+- 表格/分页步骤：`reference/table-pagination.md`
+- 下载步骤：`reference/error-recovery.md`（含落盘校验）
+- 任何跨步骤动作前：`reference/page-element-map.md` + `reference/operation-matrix.md`
 
 ## 目标区块锚定（关键）
 
@@ -58,6 +117,17 @@ metadata:
 2. 普通点击后默认 `browser_wait 0.2~0.5s`，查询后 `1~2s`。
 3. 禁止在成功校验后重复点击同一控件。
 4. 单步失败上限 2 次，超过后必须切换策略或上报。
+5. 大体积截图仅在失败取证时调用，不用于常规流程。
+6. 可确定的连续动作（例如：展开下拉 -> 选项点击 -> 收起）优先打包为 `browser_run_plan`。
+
+## 日期与查询的验收门槛（新增）
+
+对“填写日期并查询”类指令，必须满足以下门槛才可输出成功：
+
+1. **当期**：开始/结束日期均与目标值一致（给出填前/填后）。
+2. **对比期**：开始/结束日期均与目标值一致（给出填前/填后）。
+3. **查询动作**：点击目标区块 `ref` 后，结果区出现可观测变化（例如：指标值、总条数、更新时间、加载态结束）。
+4. **任一门槛未满足**：输出失败摘要，不得使用“已完成/已成功”表述。
 
 ## 键盘兜底策略（推荐）
 
@@ -91,13 +161,16 @@ metadata:
 1. 在父页先定位目标入口，并尝试提取目标 URL。
 2. 能提取 URL 时，直接在当前 tab 执行 `browser_navigate` 到目标页。
 3. 无法提取 URL 时，仅执行 1 次点击尝试；点击后立即 snapshot 校验目标页锚点是否出现。
-4. 若报“扩展未连接/No tab connected”，判定可能发生新开 tab：提示用户切到目标 tab 点击 Connect。
+4. 若报“浏览器通道未连接/目标标签页不可用”，判定可能发生新开 tab：先做通道恢复与目标页重校验。
 5. 用户确认后，先 snapshot 校验当前页面是否已是目标二级页；通过后再继续筛选或读取。
 6. 若重连后仍未命中目标页锚点，返回父页并改道（重新取 URL 后 navigate），不做第 3 次盲目点击。
 
 ## 组件参考文档
 
 - 入口索引：`reference/README.md`
+- 执行门控：`reference/workflow-gate.md`
+- 页面元素映射：`reference/page-element-map.md`
+- 全元素操作矩阵：`reference/operation-matrix.md`
 - 日期范围：`reference/date-range-picker.md`
 - 单选下拉：`reference/single-select.md`
 - 多选下拉：`reference/multi-select.md`
@@ -113,7 +186,11 @@ metadata:
 3. 设置单选/多选/复选筛选项。
 4. 点击查询并校验目标表出现。
 5. 读取表格并执行翻页采集。
-6. 输出结构化结果和异常摘要。
+6. 若有下载要求，执行下载并校验本地落盘。
+7. 输出结构化结果和异常摘要。
+
+> 执行提示：步骤 2/4 必须采用 `snapshot -> 锚定区块 -> 取 ref -> 操作 -> 校验` 的闭环，不可跳过。
+> 执行提示：读取页面后，先给出计划，再按步骤读取 reference 并执行；禁止跳过 reference。
 
 ## 输出要求
 
@@ -121,3 +198,4 @@ metadata:
 - 目标表名、总页数、总行数
 - 下载任务需输出：任务名、页面状态、本地文件名、落盘目录、落盘时间（若未确认需明确标注）
 - 失败时提供失败步骤、已尝试策略、建议下一步
+- 日期任务额外输出：当期/对比期四个日期框的“填前值 -> 填后值”对照

@@ -56,7 +56,7 @@ async def lifespan(app: FastAPI):
     def _check_browser_mcp():
         from tools import get_browser_mcp_init_status
         return get_browser_mcp_init_status()
-    init_collector.run_job("check_browser_mcp", _check_browser_mcp)
+    init_collector.run_job("check_browser_channel", _check_browser_mcp)
 
     logger.info("MyClaw V2 initialized — %d jobs completed", len(init_collector.jobs))
     yield

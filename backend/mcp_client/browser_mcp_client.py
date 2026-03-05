@@ -63,7 +63,7 @@ def _shorten_error(err: Exception) -> str:
     if "timeout" in s_lower or "timed out" in s_lower:
         return "操作超时。请确认扩展已 Connect，或增加 BROWSER_MCP_TIMEOUT。"
     if "npx" in s_lower or "not found" in s_lower or "enoent" in s_lower:
-        return "未找到 Browser MCP 启动命令。请检查 BROWSER_MCP_COMMAND/BROWSER_MCP_ARGS 配置与 PATH。"
+        return "未找到 Browser MCP 启动命令（如 npx）。请检查 BROWSER_MCP_COMMAND/BROWSER_MCP_ARGS 配置与 PATH。"
     if "failed to kill process on port" in s_lower or "maximum call stack size exceeded" in s_lower:
         return "Browser MCP 子进程异常。请关闭占用端口的进程后重试，必要时重启 Chrome 与后端服务。"
     return s[:200]

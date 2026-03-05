@@ -27,6 +27,7 @@ const JOB_LABELS: Record<string, string> = {
   discover_skills: "Discover Skills (metadata only)",
   register_tools: "Register Builtin Tools",
   check_browser_mcp: "Browser MCP",
+  check_browser_channel: "Browser Native Channel",
 };
 
 function SkillListPanel({ skills, onViewDoc }: { skills: InitSkillInfo[]; onViewDoc: (name: string) => void }) {
@@ -226,7 +227,6 @@ export default function InitJobsSection({ jobs, skills, systemPrompt }: Props) {
 
   const allSuccess = jobs.every((j) => j.status === "success");
   const hasError = jobs.some((j) => j.status === "error");
-  const hasWarning = jobs.some((j) => j.status === "warning");
 
   return (
     <div style={{ marginBottom: 8 }}>

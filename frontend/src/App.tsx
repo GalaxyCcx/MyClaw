@@ -104,6 +104,9 @@ function App() {
             contextLimit={graph.contextLimit}
             modelName={graph.modelName}
           />
+          <Tag color={graph.browserTransport === "native_extension" ? "blue" : "purple"}>
+            {graph.browserTransport}
+          </Tag>
           <Tag color={statusColor}>{status}</Tag>
           <Button
             size="small"

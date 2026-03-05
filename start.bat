@@ -106,9 +106,10 @@ if not exist "%BACKEND%\.env" (
 
 for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":8000 .*LISTENING" 2^>nul') do taskkill /F /PID %%p >nul 2>&1
 for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":5173 .*LISTENING" 2^>nul') do taskkill /F /PID %%p >nul 2>&1
+timeout /t 1 /nobreak >nul
 
 pushd "%BACKEND%"
-start "MyClaw-Backend" cmd /k "title MyClaw Backend && color 0A && ""%PY%"" -m uvicorn main:app --host 0.0.0.0 --port 8000 --ws-ping-interval 25 --ws-ping-timeout 300"
+start "MyClaw-Backend" cmd /k "title MyClaw Backend && color 0A && set BROWSER_TRANSPORT=native_extension && ""%PY%"" -m uvicorn main:app --host 0.0.0.0 --port 8000 --ws-ping-interval 25 --ws-ping-timeout 300"
 popd
 
 timeout /t 2 /nobreak >nul
@@ -121,7 +122,7 @@ echo.
 echo Started:
 echo   Frontend: http://localhost:5173
 echo   Backend : http://localhost:8000
-echo   Browser MCP: install extension and click Connect on target tab
+echo   Browser Channel: native_extension (Chrome v2)
 echo.
 echo Opening browser in 3 seconds...
 timeout /t 3 /nobreak >nul
