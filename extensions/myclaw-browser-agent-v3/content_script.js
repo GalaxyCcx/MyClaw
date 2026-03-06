@@ -20,7 +20,7 @@ function isInteractive(el) {
   const tag = String(el.tagName || "").toLowerCase();
   const role = String(el.getAttribute("role") || "").toLowerCase();
   if (["a", "button", "input", "textarea", "select", "summary"].includes(tag)) return true;
-  if (["button", "link", "textbox", "combobox", "checkbox", "radio", "menuitem", "tab", "switch"].includes(role)) return true;
+  if (["button", "link", "textbox", "combobox", "checkbox", "radio", "menuitem", "tab", "switch", "gridcell"].includes(role)) return true;
   if (el.hasAttribute("onclick")) return true;
   if (el.hasAttribute("contenteditable")) return true;
   if (el.hasAttribute("tabindex") && Number(el.getAttribute("tabindex")) >= 0) return true;
@@ -153,6 +153,46 @@ function collectInteractiveCandidates(dense) {
     }
   }
 
+  if (dense) {
+    // Tier-3.5 (dense): grid/date-like cells for calendar/table widgets.
+    const cellSelectors = [
+      "[role='gridcell']",
+      "td[role='gridcell']",
+      ".ant-picker-cell",
+      ".ant-picker-cell-inner",
+      ".ant-calendar-cell",
+      ".rc-picker-cell",
+      "[class*='picker-cell']",
+      "[class*='calendar-cell']",
+      "td[title]",
+      "button[title]",
+      "[aria-selected]",
+    ];
+    for (const sel of cellSelectors) {
+      for (const node of Array.from(document.querySelectorAll(sel))) {
+        if (!(node instanceof Element) || !isVisible(node)) continue;
+        const r = node.getBoundingClientRect();
+        if (r.width < 12 || r.height < 12 || r.width > 96 || r.height > 96) continue;
+        const txt = normText(node.innerText || node.textContent || "");
+        const title = String(node.getAttribute("title") || node.getAttribute("aria-label") || "").trim();
+        const cls = String(node.className || "").toLowerCase();
+        const hasDateLikeSignal =
+          /^\d{1,2}$/.test(txt) ||
+          txt.length <= 4 ||
+          title.length > 0 ||
+          cls.includes("cell") ||
+          cls.includes("date") ||
+          cls.includes("day") ||
+          node.hasAttribute("aria-selected") ||
+          node.hasAttribute("data-value") ||
+          node.hasAttribute("data-date");
+        if (!hasDateLikeSignal) continue;
+        pushEl(node);
+        pushEl(nearestActionable(node));
+      }
+    }
+  }
+
   // Tier-2.5: text tabs in nav area (important for BI page section switching).
   for (const node of Array.from(document.querySelectorAll(".ant-tabs-nav *, [class*='tabs'] *"))) {
     if (!(node instanceof Element)) continue;
@@ -219,12 +259,78 @@ function collectInteractiveCandidates(dense) {
     }
   }
 
+  // Tier-2.8: table action text (e.g. 下载/查看/编辑).
+  const tableActionWords = new Set([
+    "下载",
+    "导出",
+    "查看",
+    "详情",
+    "编辑",
+    "删除",
+    "重试",
+    "下载中",
+    "download",
+    "export",
+    "view",
+    "detail",
+    "edit",
+    "delete",
+    "retry",
+  ]);
+  const tableActionSelectors = [
+    ".ant-table a",
+    ".ant-table button",
+    ".ant-table [role='button']",
+    ".ant-table td span",
+    "table a",
+    "table button",
+    "table [role='button']",
+    "table td span",
+  ];
+  for (const sel of tableActionSelectors) {
+    for (const node of Array.from(document.querySelectorAll(sel))) {
+      if (!(node instanceof Element) || !isVisible(node)) continue;
+      const txt = normText(node.innerText || node.textContent || "").toLowerCase();
+      if (!txt || txt.length > 12) continue;
+      if (!tableActionWords.has(txt)) continue;
+      const r = node.getBoundingClientRect();
+      if (r.width < 8 || r.width > 160 || r.height < 8 || r.height > 48) continue;
+      pushEl(node);
+      pushEl(nearestActionable(node));
+      const fallback = node.closest?.("a,button,[role='button'],td");
+      if (fallback instanceof Element) pushEl(fallback);
+    }
+  }
+
+  if (dense) {
+    // Tier-2.9 (dense): global short action words under table/list context.
+    // Covers pages where operation items are rendered by delegated handlers.
+    const actionWordSet = tableActionWords;
+    for (const node of Array.from(document.querySelectorAll("a,button,span,div"))) {
+      if (!(node instanceof Element) || !isVisible(node)) continue;
+      const txt = normText(node.innerText || node.textContent || "").toLowerCase();
+      if (!txt || txt.length > 10) continue;
+      if (!actionWordSet.has(txt)) continue;
+      const inDataContext =
+        node.closest(
+          "table,.ant-table,[class*='table'],[class*='list'],[class*='task'],[class*='row'],[role='row'],[role='grid']",
+        ) !== null;
+      if (!inDataContext) continue;
+      const r = node.getBoundingClientRect();
+      if (r.width < 6 || r.width > 180 || r.height < 8 || r.height > 52) continue;
+      pushEl(node);
+      pushEl(nearestActionable(node));
+      const fallback = node.closest?.("a,button,[role='button'],td,div");
+      if (fallback instanceof Element) pushEl(fallback);
+    }
+  }
+
   return out;
 }
 
 function collectMarks(payload = {}) {
   const dense = Boolean(payload.dense);
-  const maxMarks = Math.max(1, Math.min(600, Number(payload.max_marks || (dense ? 320 : 160))));
+  const maxMarks = Math.max(1, Math.min(1200, Number(payload.max_marks || (dense ? 420 : 180))));
   const prefix = String(payload.label_prefix || "a").trim() || "a";
   const labelStart = Math.max(0, Number(payload.label_start || 0));
   const viewportOnly = payload.viewport_only !== false;
@@ -414,14 +520,18 @@ function clickPointAction(payload = {}) {
   const candidate = document.elementFromPoint(x, y);
   if (!candidate) return { ok: false, error_code: "target_not_found", message: "no element at point" };
   const target =
-    candidate.closest?.("button, a, input, textarea, select, [role='button'], [role='link'], [tabindex]") ||
+    candidate.closest?.(
+      "button, a, input, textarea, select, [role='button'], [role='link'], [role='gridcell'], td, .ant-picker-cell, .ant-picker-cell-inner, [tabindex]",
+    ) ||
     candidate;
   const ev = { bubbles: true, cancelable: true, clientX: x, clientY: y };
+  target.dispatchEvent(new PointerEvent("pointerdown", ev));
   target.dispatchEvent(new MouseEvent("mouseenter", ev));
   target.dispatchEvent(new MouseEvent("mouseover", ev));
   target.dispatchEvent(new MouseEvent("mousemove", ev));
   target.dispatchEvent(new MouseEvent("mousedown", ev));
   target.dispatchEvent(new MouseEvent("mouseup", ev));
+  target.dispatchEvent(new PointerEvent("pointerup", ev));
   if (typeof target.click === "function") target.click();
   else target.dispatchEvent(new MouseEvent("click", ev));
   return { ok: true, changed: true };

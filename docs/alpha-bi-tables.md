@@ -1,20 +1,19 @@
-# Alpha BI 表名清单
+# AlphaBI 数据后台表单整理（已拆分到 Skill References）
 
-从 snapshot 提取，供 locate-table、测试清单等使用。
+该文档已拆分为 `alphabi-operator` 技能可直接检索的 reference 文件，供 agent 按表名快速定位：
 
-## 表名及所属区块
+- `.cursor/skills/alphabi-operator/references/alpha-bi-table-index.md`
+- `.cursor/skills/alphabi-operator/references/alpha-bi-core-metrics.md`
+- `.cursor/skills/alphabi-operator/references/alpha-bi-problem-location.md`
+- `.cursor/skills/alphabi-operator/references/alpha-bi-attribution-v1.md`
+- `.cursor/skills/alphabi-operator/references/alpha-bi-attribution-v2.md`
+- `.cursor/skills/alphabi-operator/references/alpha-bi-trend-analysis.md`
 
-| 表名 | 所属区块 |
-|------|----------|
-| ✔ [贡献拆解1]-商品分类 | - |
-| ✔ [过程拆解2]-补充订单&用户 | - |
-| 图：GMV/销量趋势 | - |
-| 图：GMV拆解 | - |
-| 图：品类笔单价贡献值拆解 | - |
-| 图：日用户渗透趋势 | - |
-| [贡献拆解1]-商品分类 | - |
-| [过程拆解2]-补充订单&用户 | - |
+## 检索建议
 
-## 提取说明
-
-- 模式：`✔ [xxx]-yyy`、`图N：xxx`、`[xxx]-yyy`
+1. 先按表名在 `alpha-bi-table-index.md` 命中。
+2. 再进入对应模块 reference，读取：
+   - 表名
+   - 描述
+   - 筛选项（逐条 + 所属模块）
+   - 全局控制判定
