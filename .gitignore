@@ -53,3 +53,15 @@ docs/vision-debug/alpha_*/
 docs/vision-debug/alpha_full_init_run_*/
 backend/memory/runtime_plans/plan_alpha_bi_*.md
 task_center_download_result.json
+
+# AlphaBI named files/dirs (broad rule)
+*alphabi*
+*alpha-bi*
+*alpha_bi*
+
+# User-requested full directory exclusions
+backend/memory/
+backend/skills/alphabi-operator/
+backend/skills/alphabi-operator/references/
+backend/tests/
+docs/
