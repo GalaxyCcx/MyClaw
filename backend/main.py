@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import router
 
-load_dotenv()
+load_dotenv(override=True)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -53,10 +53,12 @@ async def lifespan(app: FastAPI):
         return f"{len(tools)} builtin tools — [{', '.join(names)}]"
     init_collector.run_job("register_tools", _register_tools)
 
-    def _check_browser_mcp():
-        from tools import get_browser_mcp_init_status
-        return get_browser_mcp_init_status()
-    init_collector.run_job("check_browser_channel", _check_browser_mcp)
+    def _check_browser_channel():
+        from tools import get_browser_channel_init_status
+
+        return get_browser_channel_init_status()
+
+    init_collector.run_job("check_browser_channel", _check_browser_channel)
 
     logger.info("MyClaw V2 initialized — %d jobs completed", len(init_collector.jobs))
     yield

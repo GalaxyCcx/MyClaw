@@ -72,15 +72,6 @@ if not exist "%DEPS_MARKER%" (
 ) else (
     echo   Dependencies already installed.
 )
-echo   Ensuring mcp[cli] for browser automation...
-"%PIP%" install "mcp[cli]>=1.0" -q
-if errorlevel 1 (
-    echo [WARN] mcp install failed, Browser MCP may not work.
-) else (
-    echo   mcp OK
-)
-echo.
-
 rem 4) Install frontend dependencies
 echo [4/5] Checking frontend dependencies...
 if not exist "%FRONTEND%\node_modules" (
@@ -97,9 +88,8 @@ if not exist "%FRONTEND%\node_modules" (
 )
 echo.
 
-rem 5) Enable MCP and start services
-echo [5/5] Enabling MCP and starting services...
-"%PY%" "%BACKEND%\scripts\init_mcp.py"
+rem 5) Start services
+echo [5/5] Starting services...
 if not exist "%BACKEND%\.env" (
     echo [WARN] backend\.env not found. Create it from backend\.env.example first.
 )
@@ -122,7 +112,7 @@ echo.
 echo Started:
 echo   Frontend: http://localhost:5173
 echo   Backend : http://localhost:8000
-echo   Browser Channel: native_extension (Chrome v2)
+echo   Browser Channel: native_extension (Chrome v3)
 echo.
 echo Opening browser in 3 seconds...
 timeout /t 3 /nobreak >nul

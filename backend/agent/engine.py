@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import time
@@ -41,9 +42,6 @@ MODEL_CONTEXT_LIMITS: dict[str, int] = {
 }
 DEFAULT_CONTEXT_LIMIT = 131072
 
-DEPRECATED_BROWSER_SKILLS: set[str] = set()
-
-
 def _is_tool_error_content(content: Any) -> bool:
     raw = str(content or "").strip()
     if not raw:
@@ -62,6 +60,74 @@ def _is_tool_error_content(content: Any) -> bool:
         or "element not found" in text
         or "stale" in text
     )
+
+
+def _tool_content_for_ui(content: Any) -> str:
+    """Serialize tool content for frontend events while preserving model-side rich content."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        text_blocks: list[str] = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text_val = block.get("text")
+                if isinstance(text_val, str) and text_val.strip():
+                    text_blocks.append(text_val)
+        if text_blocks:
+            return "\n".join(text_blocks)
+        try:
+            return json.dumps(content, ensure_ascii=False)
+        except Exception:
+            return str(content)
+    try:
+        return json.dumps(content, ensure_ascii=False)
+    except Exception:
+        return str(content)
+
+
+def _tool_content_for_history(content: Any) -> str:
+    """Compact tool content to text for persisted history."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        text_blocks: list[str] = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                t = block.get("text")
+                if isinstance(t, str) and t.strip():
+                    text_blocks.append(t)
+        if text_blocks:
+            return "\n".join(text_blocks)
+        return _tool_content_for_ui(content)
+    return _tool_content_for_ui(content)
+
+
+def _to_history_message(msg: Any) -> dict[str, Any]:
+    if isinstance(msg, dict):
+        return msg
+    role = getattr(msg, "type", "")
+    if role == "ai":
+        out: dict[str, Any] = {"role": "assistant"}
+        content = getattr(msg, "content", "")
+        if content:
+            out["content"] = content if isinstance(content, str) else _tool_content_for_ui(content)
+        tool_calls = getattr(msg, "tool_calls", None)
+        if tool_calls:
+            out["tool_calls"] = [
+                {"id": tc.get("id", ""), "name": tc.get("name", ""), "args": tc.get("args", {})}
+                for tc in tool_calls
+            ]
+        return out
+    if role == "tool":
+        return {
+            "role": "tool",
+            "name": getattr(msg, "name", ""),
+            "tool_call_id": getattr(msg, "tool_call_id", ""),
+            "content": _tool_content_for_history(getattr(msg, "content", "")),
+        }
+    if role == "human":
+        return {"role": "user", "content": getattr(msg, "content", "")}
+    return {"role": "assistant", "content": str(getattr(msg, "content", ""))}
 
 
 def _extract_token_usage(ai_msg) -> dict[str, int] | None:
@@ -100,19 +166,15 @@ def _build_system_prompt() -> str:
     base = load_system_prompt()
     today = datetime.now().strftime("%Y-%m-%d %A")
     base = f"当前日期：{today}\n\n{base}"
-    transport = (os.getenv("BROWSER_TRANSPORT", "legacy_mcp") or "legacy_mcp").strip().lower()
-    if transport == "native_extension":
-        base += (
-            "\n\n<browser_runtime_policy>\n"
-            "- 当前浏览器通道为 native_extension。\n"
-            "- 浏览器控制能力以内建工具策略为准；复杂页面优先读取页面专用 Skill。\n"
-            "- 当目标为 Alpha BI 页面时，先读 alpha-bi-browser 主文档，再按需读取 reference 文档。\n"
-            "</browser_runtime_policy>"
-        )
+    base += (
+        "\n\n<browser_runtime_policy>\n"
+        "- 当前浏览器通道为 native_extension（V3）。\n"
+        "- 浏览器控制能力以 tool call 为准，优先使用 browser_vision_* 工具。\n"
+        "- 复杂页面操作遵循“截图(plain/marked/json) -> 决策 -> 执行 -> 再截图”闭环。\n"
+        "</browser_runtime_policy>"
+    )
     loader = get_skill_loader()
     skills = loader.loaded_skills
-    if transport == "native_extension":
-        skills = [s for s in skills if s.name not in DEPRECATED_BROWSER_SKILLS]
     if skills:
         lines = ["", "", "<available_skills>"]
         for s in skills:
@@ -253,6 +315,7 @@ async def run_agent(
                 for tm in tool_msgs:
                     round_messages.append(tm)
                     content = getattr(tm, "content", "")
+                    content_for_ui = _tool_content_for_ui(content)
                     name = getattr(tm, "name", "")
                     tool_call_id = getattr(tm, "tool_call_id", "")
                     status = "error" if _is_tool_error_content(content) else "success"
@@ -271,7 +334,7 @@ async def run_agent(
                             "tool_call_id": tool_call_id,
                             "name": name,
                             "status": status,
-                            "content": content,
+                            "content": content_for_ui,
                         },
                         step=step,
                     ))
@@ -285,4 +348,4 @@ async def run_agent(
                         "duration_ms": tool_duration,
                     }, step=step))
 
-    return round_messages
+    return [_to_history_message(m) for m in round_messages]

@@ -15,6 +15,12 @@ interface Props {
   data: ToolResultData;
 }
 
+interface ScreenshotPayload {
+  screenshot_id: string;
+  chars?: number;
+  marks_count?: number;
+}
+
 function guessLanguage(name: string, content: string): string | null {
   if (CODE_TOOLS.has(name)) return "python";
   if (FILE_TOOLS.has(name)) {
@@ -25,8 +31,26 @@ function guessLanguage(name: string, content: string): string | null {
   return null;
 }
 
+function parseScreenshotPayload(content: string): ScreenshotPayload | null {
+  const raw = content.trim();
+  if (!raw.startsWith("{") || !raw.endsWith("}")) return null;
+  try {
+    const obj = JSON.parse(raw) as Record<string, unknown>;
+    const screenshotId = obj.screenshot_id;
+    if (typeof screenshotId !== "string" || !screenshotId) return null;
+    return {
+      screenshot_id: screenshotId,
+      chars: typeof obj.chars === "number" ? obj.chars : undefined,
+      marks_count: typeof obj.marks_count === "number" ? obj.marks_count : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export default function ToolResultCard({ data }: Props) {
   const isSuccess = data.status === "success";
+  const screenshot = parseScreenshotPayload(data.content);
   const lines = data.content.split("\n");
   const isLong = lines.length > MAX_COLLAPSED_LINES;
   const [expanded, setExpanded] = useState(!isLong);
@@ -60,7 +84,26 @@ export default function ToolResultCard({ data }: Props) {
             {isLong && <Text type="secondary" style={{ marginLeft: 4, fontSize: 12 }}>{lines.length} 行</Text>}
           </span>
         </div>
-        {lang ? (
+        {screenshot ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <img
+              src={`/api/browser/images/${encodeURIComponent(screenshot.screenshot_id)}`}
+              alt="browser screenshot"
+              style={{
+                width: "100%",
+                maxHeight: 520,
+                objectFit: "contain",
+                background: "#f5f5f5",
+                border: "1px solid #d9d9d9",
+                borderRadius: 6,
+              }}
+            />
+            <div style={{ fontSize: 12, color: "#666" }}>
+              image_id: {screenshot.screenshot_id}
+              {typeof screenshot.marks_count === "number" ? ` | marks: ${screenshot.marks_count}` : ""}
+            </div>
+          </div>
+        ) : lang ? (
           <SyntaxHighlighter
             language={lang}
             style={oneLight}

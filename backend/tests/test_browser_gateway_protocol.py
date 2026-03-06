@@ -26,7 +26,18 @@ class TestBrowserGatewayProtocol(unittest.TestCase):
         self.assertTrue(err["retriable"])
 
     def test_supported_actions_contains_core(self):
-        for action in ("navigate", "click", "type", "run_plan", "snapshot", "wait", "press_key", "alpha_bi_download_table"):
+        for action in (
+            "navigate",
+            "wait",
+            "get_url",
+            "screenshot",
+            "vision_capture_marked",
+            "vision_click_label",
+            "vision_type_label",
+            "vision_scroll_by",
+            "vision_wait_stable",
+            "vision_clear_marks",
+        ):
             self.assertIn(action, SUPPORTED_ACTIONS)
 
 

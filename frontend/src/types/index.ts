@@ -74,13 +74,6 @@ export interface InitSkillInfo {
   scripts: string[];
 }
 
-export interface MCPInfo {
-  id: string;
-  name: string;
-  description: string;
-  enabled: boolean;
-}
-
 export interface TokenUsage {
   prompt_tokens: number;
   completion_tokens: number;
@@ -94,7 +87,7 @@ export interface InitStatusData {
   system_prompt?: string;
   model_name?: string;
   context_limit?: number;
-  browser_transport?: "legacy_mcp" | "native_extension" | string;
+  browser_transport?: "native_extension" | string;
 }
 
 export interface NodeEnterData {

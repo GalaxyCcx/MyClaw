@@ -26,7 +26,6 @@ const JOB_LABELS: Record<string, string> = {
   check_llm: "Check LLM Connection",
   discover_skills: "Discover Skills (metadata only)",
   register_tools: "Register Builtin Tools",
-  check_browser_mcp: "Browser MCP",
   check_browser_channel: "Browser Native Channel",
 };
 

@@ -31,7 +31,7 @@ export function useGraph() {
   const [systemPrompt, setSystemPrompt] = useState<string>("");
   const [modelName, setModelName] = useState<string>("");
   const [contextLimit, setContextLimit] = useState<number>(131072);
-  const [browserTransport, setBrowserTransport] = useState<string>("legacy_mcp");
+  const [browserTransport, setBrowserTransport] = useState<string>("native_extension");
   const [tokenUsage, setTokenUsage] = useState<TokenUsage>({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
   const [graphNodes, setGraphNodes] = useState<GraphNode[]>([]);
   const [graphEdges, setGraphEdges] = useState<GraphEdge[]>([]);
@@ -64,7 +64,7 @@ export function useGraph() {
         setSystemPrompt(d.system_prompt || "");
         setModelName(d.model_name || "");
         setContextLimit(d.context_limit || 131072);
-        setBrowserTransport(d.browser_transport || "legacy_mcp");
+        setBrowserTransport(d.browser_transport || "native_extension");
         setTokenUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
         setGraphNodes([]);
         setGraphEdges([]);

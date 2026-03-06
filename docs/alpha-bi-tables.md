@@ -2,12 +2,12 @@
 
 该文档已拆分为 `alphabi-operator` 技能可直接检索的 reference 文件，供 agent 按表名快速定位：
 
-- `.cursor/skills/alphabi-operator/references/alpha-bi-table-index.md`
-- `.cursor/skills/alphabi-operator/references/alpha-bi-core-metrics.md`
-- `.cursor/skills/alphabi-operator/references/alpha-bi-problem-location.md`
-- `.cursor/skills/alphabi-operator/references/alpha-bi-attribution-v1.md`
-- `.cursor/skills/alphabi-operator/references/alpha-bi-attribution-v2.md`
-- `.cursor/skills/alphabi-operator/references/alpha-bi-trend-analysis.md`
+- `backend/skills/alphabi-operator/references/alpha-bi-table-index.md`
+- `backend/skills/alphabi-operator/references/alpha-bi-core-metrics.md`
+- `backend/skills/alphabi-operator/references/alpha-bi-problem-location.md`
+- `backend/skills/alphabi-operator/references/alpha-bi-attribution-v1.md`
+- `backend/skills/alphabi-operator/references/alpha-bi-attribution-v2.md`
+- `backend/skills/alphabi-operator/references/alpha-bi-trend-analysis.md`
 
 ## 检索建议
 

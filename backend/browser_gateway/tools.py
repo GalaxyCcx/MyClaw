@@ -9,24 +9,17 @@ from typing import Any
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
+from browser_gateway.image_store import put_browser_image
 from browser_gateway.manager import get_browser_gateway_manager
+from browser_gateway.oss_store import upload_data_url_and_sign
+from browser_gateway.protocol import SUPPORTED_ACTIONS
 
 
 def _gateway_timeout() -> float:
     return float(os.getenv("BROWSER_GATEWAY_TIMEOUT", "30"))
 
 
-ALPHA_BI_HOST_KEYWORD = "alpha-bi.ddxq.mobi/report"
-ALPHA_BI_SINGLE_STEP_BLOCKED_ACTIONS = {
-    "click",
-    "type",
-    "select_option",
-    "hover",
-    "press_key",
-}
-
-
-def _format_gateway_result(result: dict[str, Any]) -> str:
+def _format_gateway_result(result: dict[str, Any]) -> Any:
     if result.get("type") == "error":
         return f"错误: {result.get('message', 'unknown error')}"
     payload = result.get("payload")
@@ -43,10 +36,75 @@ def _format_gateway_result(result: dict[str, Any]) -> str:
             }
             return _to_compact_json(compact, max_len=2000)
 
-        # Never surface screenshot base64 to the model context.
+        # Store screenshot out-of-band and expose official multimodal blocks to model:
+        # [{"type":"text","text":"..."}, {"type":"image_url","image_url":{"url":"..."}}]
+        # URL source:
+        # - OSS signed URL (preferred when OSS is configured)
+        # - fallback: backend public URL or data URL (no external upload required)
         data_url = payload.get("data_url")
         if isinstance(data_url, str) and data_url:
-            return f"screenshot captured (data_url omitted, chars={len(data_url)})"
+            image_id = put_browser_image(data_url)
+            compact = {"screenshot_id": image_id, "chars": len(data_url)}
+            marks = payload.get("marks")
+            if isinstance(marks, list):
+                compact["marks_count"] = len(marks)
+            page = payload.get("page")
+            if isinstance(page, dict):
+                compact["page"] = {"url": page.get("url", "")}
+            meta = payload.get("meta")
+            if isinstance(meta, dict):
+                compact["meta"] = meta
+            text_part = _to_compact_json(compact, max_len=1200)
+            send_image = os.getenv("BROWSER_VISION_SEND_IMAGE_TO_LLM", "1").strip().lower() in ("1", "true", "yes")
+            mark_limit = max(20, int(os.getenv("BROWSER_VISION_MARKS_TO_LLM_LIMIT", "260")))
+            marks_compact: list[dict[str, Any]] = []
+            if isinstance(marks, list):
+                for m in marks[:mark_limit]:
+                    if not isinstance(m, dict):
+                        continue
+                    txt = str(m.get("text", "") or "")
+                    if len(txt) > 80:
+                        txt = txt[:80] + "..."
+                    marks_compact.append(
+                        {
+                            "label": m.get("label", ""),
+                            "text": txt,
+                            "x": m.get("x", 0),
+                            "y": m.get("y", 0),
+                            "width": m.get("width", 0),
+                            "height": m.get("height", 0),
+                            "tag": m.get("tag", ""),
+                            "role": m.get("role", ""),
+                        }
+                    )
+            llm_json = {
+                "summary": compact,
+                "marks_total": len(marks) if isinstance(marks, list) else 0,
+                "marks_limit": mark_limit,
+                "marks": marks_compact,
+            }
+            if not send_image:
+                return _to_compact_json(llm_json, max_len=48000)
+            image_url = ""
+            image_source = "none"
+            prefer_oss = os.getenv("BROWSER_VISION_IMAGE_SOURCE", "oss").strip().lower() == "oss"
+            if prefer_oss:
+                signed = upload_data_url_and_sign(image_id=image_id, data_url=data_url)
+                if signed:
+                    image_url = signed
+                    image_source = "oss"
+            if not image_url:
+                public_base = os.getenv("BROWSER_VISION_IMAGE_PUBLIC_BASE_URL", "").strip().rstrip("/")
+                if public_base:
+                    image_url = f"{public_base}/api/browser/images/{image_id}"
+                    image_source = "backend_public"
+                else:
+                    image_url = data_url
+                    image_source = "data_url"
+            return [
+                {"type": "text", "text": _to_compact_json({**llm_json, "image_source": image_source}, max_len=48000)},
+                {"type": "image_url", "image_url": {"url": image_url, "detail": "low"}},
+            ]
 
         snapshot = payload.get("snapshot")
         if isinstance(snapshot, dict):
@@ -59,36 +117,6 @@ def _format_gateway_result(result: dict[str, Any]) -> str:
 
 def _is_retriable_error(result: dict[str, Any]) -> bool:
     return result.get("type") == "error" and bool(result.get("retriable"))
-
-
-def _active_url_from_status_snapshot() -> str:
-    try:
-        status = get_browser_gateway_manager().status_snapshot()
-        clients = status.get("clients") or []
-        if not isinstance(clients, list):
-            return ""
-        active_client_id = str(status.get("active_client_id") or "")
-        if active_client_id:
-            for client in clients:
-                if str(client.get("client_id") or "") == active_client_id:
-                    meta = client.get("meta") or {}
-                    return str(meta.get("active_url") or "")
-        if clients:
-            meta = clients[0].get("meta") or {}
-            return str(meta.get("active_url") or "")
-    except Exception:
-        return ""
-    return ""
-
-
-def _should_block_single_step_in_alpha_bi(action: str, payload: dict[str, Any]) -> bool:
-    if action not in ALPHA_BI_SINGLE_STEP_BLOCKED_ACTIONS:
-        return False
-    # allow escape hatch for diagnostics/manual fallback
-    if bool(payload.get("force_single_step")):
-        return False
-    active_url = _active_url_from_status_snapshot()
-    return ALPHA_BI_HOST_KEYWORD in active_url
 
 
 def _truncate(text: str, max_len: int) -> str:
@@ -120,59 +148,77 @@ class NavigateArgs(BaseModel):
     url: str = Field(..., description="目标URL")
 
 
-class ClickArgs(BaseModel):
-    ref: str | None = Field(default=None, description="snapshot 返回的元素引用ID")
-    selector: str | None = Field(default=None, description="CSS选择器")
-    text: str | None = Field(default=None, description="按可见文本匹配")
+class VisionCaptureMarkedArgs(BaseModel):
+    max_marks: int = Field(default=1200, description="最多返回标注数量（默认最细模式）")
+    dense: bool = Field(default=True, description="是否开启高密度标注模式（默认开启）")
+    wait_stable: bool = Field(default=True, description="截图前是否等待稳定")
+    stable_timeout_ms: int = Field(default=3000, description="稳定检测超时（毫秒）")
+    stable_interval_ms: int = Field(default=250, description="稳定检测轮询间隔（毫秒）")
+    stable_rounds: int = Field(default=2, description="稳定判定需连续满足轮数")
+    stable_min_wait_ms: int = Field(default=0, description="稳定前最少附加等待（毫秒）")
+    mark_render_timeout_ms: int = Field(default=800, description="标注渲染等待超时（毫秒）")
+    mark_render_interval_ms: int = Field(default=120, description="标注渲染轮询间隔（毫秒）")
+    mark_render_min_wait_ms: int = Field(default=180, description="标注渲染最少附加等待（毫秒）")
 
 
-class TypeArgs(BaseModel):
-    ref: str | None = Field(default=None, description="snapshot 返回的元素引用ID")
-    selector: str | None = Field(default=None, description="CSS选择器")
-    target_text: str | None = Field(default=None, description="按可见文本匹配输入目标（仅定位，不是输入值）")
+class VisionClickLabelArgs(BaseModel):
+    label: str = Field(..., description="目标标注编号，如 a1")
+
+
+class VisionTypeLabelArgs(BaseModel):
+    label: str = Field(..., description="目标标注编号，如 a2")
     text: str = Field(..., description="输入文本")
-    clear: bool = Field(default=True, description="是否先清空输入框")
+    clear: bool = Field(default=True, description="是否先清空")
+    press_enter: bool = Field(default=False, description="输入后是否回车")
 
 
-class WaitArgs(BaseModel):
-    ms: int = Field(default=1000, description="等待毫秒数")
+class VisionScrollByArgs(BaseModel):
+    dy: int = Field(..., description="滚动像素（正数向下，负数向上）")
 
 
-class PressKeyArgs(BaseModel):
-    key: str = Field(..., description="键值，如 Enter, Escape")
+class VisionWaitStableArgs(BaseModel):
+    timeout_ms: int = Field(default=3000, description="稳定检测超时（毫秒）")
+    interval_ms: int = Field(default=250, description="稳定检测轮询间隔（毫秒）")
+    settle_rounds: int = Field(default=2, description="稳定判定需连续满足轮数")
+    min_wait_ms: int = Field(default=0, description="稳定前最少附加等待（毫秒）")
 
 
-class SnapshotArgs(BaseModel):
-    mode: str = Field(default="summary", description="summary|full")
-
-
-class DownloadStatusArgs(BaseModel):
-    keyword: str | None = Field(default=None, description="文件名关键字")
-
-
-class SelectOptionArgs(BaseModel):
-    ref: str | None = Field(default=None, description="snapshot 返回的元素引用ID")
-    selector: str | None = Field(default=None, description="select元素选择器")
-    value: str = Field(..., description="option值")
-
-
-class PlanStepArgs(BaseModel):
-    action: str = Field(..., description="步骤动作，如 click/type/wait/snapshot/select_option/press_key/navigate")
+class BrowserActionStepArgs(BaseModel):
+    action: str = Field(..., description="V3 扩展动作名")
     payload: dict[str, Any] = Field(default_factory=dict, description="步骤参数")
 
 
-class RunPlanArgs(BaseModel):
-    steps: list[PlanStepArgs] = Field(..., description="按顺序执行的动作步骤列表")
+class BrowserRunActionsArgs(BaseModel):
+    steps: list[BrowserActionStepArgs] = Field(..., description="按顺序执行的动作步骤列表")
     stop_on_error: bool = Field(default=True, description="任一步失败时是否立即停止")
 
 
+DISABLED_MODEL_ACTIONS = {"wait"}
+
+
+def _vision_capture_payload(kwargs: dict[str, Any]) -> dict[str, Any]:
+    defaults = {
+        "max_marks": 1200,
+        "dense": True,
+        "wait_stable": True,
+        "stable_timeout_ms": 3000,
+        "stable_interval_ms": 250,
+        "stable_rounds": 2,
+        "stable_min_wait_ms": 0,
+        "mark_render_timeout_ms": 800,
+        "mark_render_interval_ms": 120,
+        "mark_render_min_wait_ms": 180,
+    }
+    out = dict(defaults)
+    for k, v in (kwargs or {}).items():
+        if v is not None:
+            out[k] = v
+    return out
+
+
 def _dispatch(action: str, payload: dict[str, Any]) -> str:
-    if _should_block_single_step_in_alpha_bi(action, payload):
-        return (
-            "错误: Alpha BI 页面已启用批量执行门控。"
-            f"动作 `{action}` 需通过 browser_run_plan 执行；"
-            "如需临时调试可传 force_single_step=true。"
-        )
+    if action in DISABLED_MODEL_ACTIONS:
+        return "错误: 动作 `wait` 已禁用，请直接执行下一步或使用 vision_wait_stable。"
 
     manager = get_browser_gateway_manager()
     coro = manager.send_command(
@@ -202,106 +248,163 @@ def _dispatch(action: str, payload: dict[str, Any]) -> str:
     return _format_gateway_result(result)
 
 
+def _dispatch_steps(steps: list[Any], stop_on_error: bool = True) -> str:
+    actions_log: list[dict[str, Any]] = []
+    ok = True
+    for idx, step in enumerate(steps or []):
+        if isinstance(step, dict):
+            action = str(step.get("action") or "").strip()
+            payload = step.get("payload")
+        else:
+            action = str(getattr(step, "action", "")).strip()
+            payload = getattr(step, "payload", {})
+        if not action:
+            actions_log.append(
+                {
+                    "index": idx,
+                    "action": "",
+                    "result": {
+                        "type": "error",
+                        "message": "missing action",
+                        "retriable": False,
+                    },
+                }
+            )
+            ok = False
+            if stop_on_error:
+                break
+            continue
+        if action not in SUPPORTED_ACTIONS:
+            actions_log.append(
+                {
+                    "index": idx,
+                    "action": action,
+                    "result": {
+                        "type": "error",
+                        "message": f"unsupported action: {action}",
+                        "retriable": False,
+                    },
+                }
+            )
+            ok = False
+            if stop_on_error:
+                break
+            continue
+        if action in DISABLED_MODEL_ACTIONS:
+            actions_log.append(
+                {
+                    "index": idx,
+                    "action": action,
+                    "result": {
+                        "type": "error",
+                        "message": "action `wait` is disabled for model tools",
+                        "retriable": False,
+                    },
+                }
+            )
+            ok = False
+            if stop_on_error:
+                break
+            continue
+        manager = get_browser_gateway_manager()
+        coro = manager.send_command(
+            action=action,
+            payload=payload if isinstance(payload, dict) else {},
+            timeout=_gateway_timeout(),
+        )
+        try:
+            asyncio.get_running_loop()
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                result = pool.submit(asyncio.run, coro).result(timeout=_gateway_timeout() + 5)
+        except RuntimeError:
+            result = asyncio.run(coro)
+        actions_log.append({"index": idx, "action": action, "result": result})
+        if result.get("type") == "error":
+            ok = False
+            if stop_on_error:
+                break
+    return _to_compact_json({"ok": ok, "steps": actions_log}, max_len=5000)
+
+
 def get_native_browser_tools() -> list[StructuredTool]:
     return [
         StructuredTool.from_function(
             name="browser_navigate",
-            description="在当前浏览器标签页导航到目标 URL（native extension）。",
+            description="在当前浏览器标签页导航到目标 URL（V3 扩展）。",
             func=lambda url: _dispatch("navigate", {"url": url}),
             args_schema=NavigateArgs,
         ),
         StructuredTool.from_function(
-            name="browser_click",
-            description="点击页面元素（native extension，优先使用 ref 精确定位）。",
-            func=lambda ref=None, selector=None, text=None: _dispatch(
-                "click",
-                {"ref": ref, "selector": selector, "text": text},
-            ),
-            args_schema=ClickArgs,
+            name="browser_get_url",
+            description="获取当前标签页 URL（V3 扩展）。",
+            func=lambda: _dispatch("get_url", {}),
         ),
         StructuredTool.from_function(
-            name="browser_type",
-            description="在输入框输入文本（native extension，优先使用 ref，自动校验写入值）。",
-            func=lambda ref=None, selector=None, target_text=None, text="", clear=True: _dispatch(
-                "type",
-                {"ref": ref, "selector": selector, "target_text": target_text, "text": text, "clear": clear},
-            ),
-            args_schema=TypeArgs,
-        ),
-        StructuredTool.from_function(
-            name="browser_wait",
-            description="等待指定时间（native extension）。",
-            func=lambda ms=1000: _dispatch("wait", {"ms": ms}),
-            args_schema=WaitArgs,
-        ),
-        StructuredTool.from_function(
-            name="browser_press_key",
-            description="发送键盘按键（native extension）。",
-            func=lambda key: _dispatch("press_key", {"key": key}),
-            args_schema=PressKeyArgs,
-        ),
-        StructuredTool.from_function(
-            name="browser_hover",
-            description="鼠标悬停元素（native extension，优先使用 ref 精确定位）。",
-            func=lambda ref=None, selector=None, text=None: _dispatch(
-                "hover",
-                {"ref": ref, "selector": selector, "text": text},
-            ),
-            args_schema=ClickArgs,
-        ),
-        StructuredTool.from_function(
-            name="browser_select_option",
-            description="选择下拉选项（native extension，优先使用 ref，自动校验结果）。",
-            func=lambda value, ref=None, selector=None: _dispatch(
-                "select_option",
-                {"ref": ref, "selector": selector, "value": value},
-            ),
-            args_schema=SelectOptionArgs,
-        ),
-        StructuredTool.from_function(
-            name="browser_run_plan",
-            description="批量执行浏览器步骤（native extension）。用于一次性执行多步操作，减少往返开销。",
-            func=lambda steps, stop_on_error=True: _dispatch(
-                "run_plan",
-                {
-                    "steps": [
-                        {
-                            "action": (s.get("action", "") if isinstance(s, dict) else getattr(s, "action", "")),
-                            "payload": (s.get("payload", {}) if isinstance(s, dict) else getattr(s, "payload", {})),
-                        }
-                        for s in (steps or [])
-                    ],
-                    "stop_on_error": stop_on_error,
-                },
-            ),
-            args_schema=RunPlanArgs,
+            name="browser_screenshot",
+            description="截图当前可见区域（V3 扩展）。",
+            func=lambda: _dispatch("screenshot", {}),
         ),
         StructuredTool.from_function(
             name="browser_go_back",
-            description="浏览器后退（native extension）。",
+            description="浏览器后退（V3 扩展）。",
             func=lambda: _dispatch("go_back", {}),
         ),
         StructuredTool.from_function(
             name="browser_go_forward",
-            description="浏览器前进（native extension）。",
+            description="浏览器前进（V3 扩展）。",
             func=lambda: _dispatch("go_forward", {}),
         ),
         StructuredTool.from_function(
-            name="browser_screenshot",
-            description="截图当前可见区域（native extension）。",
-            func=lambda: _dispatch("screenshot", {}),
+            name="browser_vision_capture_marked",
+            description="截图并返回标注元素（SoM，含 marks JSON）。",
+            func=lambda **kwargs: _dispatch("vision_capture_marked", _vision_capture_payload(kwargs)),
+            args_schema=VisionCaptureMarkedArgs,
         ),
         StructuredTool.from_function(
-            name="browser_snapshot",
-            description="获取页面快照信息（native extension，包含可交互元素 ref 列表）。",
-            func=lambda mode="summary": _dispatch("snapshot", {"mode": mode}),
-            args_schema=SnapshotArgs,
+            name="browser_vision_click_label",
+            description="按标注编号点击元素（如 a1）。",
+            func=lambda label: _dispatch("vision_click_label", {"label": label}),
+            args_schema=VisionClickLabelArgs,
         ),
         StructuredTool.from_function(
-            name="browser_download_status",
-            description="查询下载状态（native extension）。",
-            func=lambda keyword=None: _dispatch("download_status", {"keyword": keyword}),
-            args_schema=DownloadStatusArgs,
+            name="browser_vision_type_label",
+            description="按标注编号输入文本（如 a2）。",
+            func=lambda label, text, clear=True, press_enter=False: _dispatch(
+                "vision_type_label",
+                {"label": label, "text": text, "clear": clear, "press_enter": press_enter},
+            ),
+            args_schema=VisionTypeLabelArgs,
+        ),
+        StructuredTool.from_function(
+            name="browser_vision_clear_marks",
+            description="清理当前页面的标注覆盖层。",
+            func=lambda: _dispatch("vision_clear_marks", {}),
+        ),
+        StructuredTool.from_function(
+            name="browser_vision_scroll_by",
+            description="按像素滚动当前页面。",
+            func=lambda dy: _dispatch("vision_scroll_by", {"dy": dy}),
+            args_schema=VisionScrollByArgs,
+        ),
+        StructuredTool.from_function(
+            name="browser_vision_wait_stable",
+            description="等待页面稳定后再继续。",
+            func=lambda timeout_ms=3000, interval_ms=250, settle_rounds=2, min_wait_ms=0: _dispatch(
+                "vision_wait_stable",
+                {
+                    "timeout_ms": timeout_ms,
+                    "interval_ms": interval_ms,
+                    "settle_rounds": settle_rounds,
+                    "min_wait_ms": min_wait_ms,
+                },
+            ),
+            args_schema=VisionWaitStableArgs,
+        ),
+        StructuredTool.from_function(
+            name="browser_run_actions",
+            description="按顺序执行一组 V3 扩展动作（tool call 批量下发）。",
+            func=lambda steps, stop_on_error=True: _dispatch_steps(steps=steps, stop_on_error=stop_on_error),
+            args_schema=BrowserRunActionsArgs,
         ),
     ]
 

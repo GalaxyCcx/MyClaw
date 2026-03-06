@@ -2,7 +2,7 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-GalaxyCcx%2FMyClaw-blue)](https://github.com/GalaxyCcx/MyClaw)
 
-一个可扩展的通用 AI Agent 平台，支持通过挂载 Skills 扩展能力，集成 Browser MCP 浏览器自动化。
+一个可扩展的通用 AI Agent 平台，支持通过挂载 Skills 扩展能力，集成 MyClaw Browser Agent V3 浏览器自动化。
 
 ## 特性
 
@@ -10,13 +10,13 @@
 - **实时执行图** — 可视化 Agent 的推理和工具调用流程
 - **可插拔 Skills** — 基于 AgentSkills 规范的 SKILL.md 文档挂载，渐进式披露
 - **内置工具** — 文件读写、网页抓取、联网搜索、Python/Shell 执行器
-- **Browser MCP** — 浏览器自动化，复用用户登录态，适合企业内网后台
+- **Browser Agent V3** — 浏览器自动化，复用用户登录态，适合企业内网后台
 - **数据分析链路** — DuckDB、Pandas、报告导出等 Skills
 
 ## 前置条件
 
 - Python 3.10+
-- Node.js 18+（Browser MCP 需 npx）
+- Node.js 18+
 - Chrome 或 Chromium（用于浏览器自动化）
 
 ## 快速开始
@@ -48,11 +48,11 @@ cp .env.example .env
 - `LLM_API_KEY` — 阿里云百炼 API Key（[获取地址](https://bailian.console.aliyun.com/)）
 - `TAVILY_API_KEY` — Tavily 搜索 API Key（[获取地址](https://tavily.com/)）
 
-### Browser MCP 浏览器自动化（可选）
+### Browser Agent V3 浏览器自动化（可选）
 
-1. 从 [Chrome 网上应用店](https://chromewebstore.google.com/detail/browser-mcp-automate-your/bjfgambnhccakkhmkepdoekmckoijdlc) 安装 Browser MCP 扩展
-2. 在目标标签页点击扩展的「Connect」
-3. 详见 [docs/browser-mcp-setup.md](docs/browser-mcp-setup.md)
+1. 在 `extensions/myclaw-browser-agent-v3` 加载本地扩展（开发者模式）
+2. 保持后端运行并打开目标页面
+3. 扩展会自动连接 `ws://127.0.0.1:8000/ws/browser-gateway`
 
 ### 手动安装
 
@@ -65,8 +65,6 @@ python -m venv .venv
 
 pip install -r requirements.txt
 pip install -r requirements-skills.txt
-pip install "mcp[cli]>=1.0"
-
 # 前端
 cd ../frontend
 npm install
@@ -95,7 +93,6 @@ MyClaw/
 │   ├── agent/          # Agent 核心逻辑（引擎、LLM、技能加载）
 │   ├── api/            # FastAPI 路由（WebSocket、REST）
 │   ├── memory/         # 对话记录持久化
-│   ├── mcp_client/     # Browser MCP stdio 客户端
 │   ├── models/         # Pydantic 数据模型
 │   ├── prompts/        # System Prompt (Markdown)
 │   ├── skills/         # 可插拔 Skills 目录
@@ -135,11 +132,10 @@ metadata:
 
 - **后端**: FastAPI + LangChain + LangGraph + Qwen (阿里云百炼)
 - **前端**: React + Vite + Ant Design + React Flow
-- **浏览器自动化**: Browser MCP + stdio (npx @browsermcp/mcp)
+- **浏览器自动化**: MyClaw Browser Agent V3 + WebSocket
 - **搜索**: Tavily API
 
 ## 文档
 
 - [PRD 当前版本](docs/PRD-current.md)
-- [Browser MCP 安装与配置](docs/browser-mcp-setup.md)
 - [Skills 框架设计](docs/skills-framework-agent-design.md)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -10,11 +11,11 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Response, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
-from config.mcp_config import list_mcps, set_mcp_enabled
 from browser_gateway import get_browser_gateway_manager
+from browser_gateway.image_store import get_browser_image
 from browser_gateway.protocol import GatewayMessageType
 from agent.engine import run_agent, PROMPTS_DIR, _build_system_prompt, MODEL_CONTEXT_LIMITS, DEFAULT_CONTEXT_LIMIT
 from agent.auto_compactor import compact_history
@@ -41,13 +42,11 @@ DEPRECATED_BROWSER_SKILLS: set[str] = set()
 
 
 def _browser_transport() -> str:
-    return (os.getenv("BROWSER_TRANSPORT", "legacy_mcp") or "legacy_mcp").strip().lower()
+    return "native_extension"
 
 
 def _filter_runtime_skills(skills):
-    if _browser_transport() == "native_extension":
-        return [s for s in skills if getattr(s, "name", "") not in DEPRECATED_BROWSER_SKILLS]
-    return skills
+    return [s for s in skills if getattr(s, "name", "") not in DEPRECATED_BROWSER_SKILLS]
 
 
 def _extract_user_friendly_error(exc: BaseException) -> str:
@@ -169,23 +168,29 @@ turns: {turn_num}
     lines.append(f"{user_content}\n")
 
     for msg in round_messages:
-        tool_calls = getattr(msg, "tool_calls", None)
-        content = getattr(msg, "content", "")
-        role = getattr(msg, "type", "")
+        if isinstance(msg, dict):
+            role = str(msg.get("role", ""))
+            content = msg.get("content", "")
+            tool_calls = msg.get("tool_calls", None)
+            name = str(msg.get("name", ""))
+        else:
+            tool_calls = getattr(msg, "tool_calls", None)
+            content = getattr(msg, "content", "")
+            role = getattr(msg, "type", "")
+            name = getattr(msg, "name", "")
 
-        if role == "ai" and tool_calls:
+        if role in {"ai", "assistant"} and tool_calls:
             for tc in tool_calls:
                 lines.append(f"\n### Agent 工具调用\n")
                 lines.append(f"**工具**: `{tc.get('name', '')}`\n")
                 args_str = json.dumps(tc.get("args", {}), ensure_ascii=False)
                 lines.append(f"**参数**: `{args_str}`\n")
         elif role == "tool":
-            name = getattr(msg, "name", "")
             status = "失败" if _is_tool_error_content(content) else "成功"
             lines.append(f"\n### 工具结果\n")
             lines.append(f"**工具**: `{name}` | **状态**: {status}\n")
             lines.append(f"```\n{content[:2000]}\n```\n")
-        elif role == "ai" and content:
+        elif role in {"ai", "assistant"} and content:
             lines.append(f"\n### Agent 最终回答\n")
             lines.append(f"{content}\n")
 
@@ -555,131 +560,36 @@ async def get_conversation(session_id: str):
     return {"session_id": session_id, "content": file_path.read_text(encoding="utf-8")}
 
 
-@router.get("/api/mcp")
-async def list_mcp():
-    """List all known MCPs with enabled state."""
-    if _browser_transport() == "native_extension":
-        return {"mcps": []}
-    return {"mcps": list_mcps()}
-
-
-class MCPEnabledUpdate(BaseModel):
-    enabled: bool
-
-
-@router.patch("/api/mcp/{mcp_id}/enabled")
-async def update_mcp_enabled(mcp_id: str, body: MCPEnabledUpdate):
-    """Toggle MCP enabled state."""
-    if _browser_transport() == "native_extension":
-        raise HTTPException(status_code=400, detail="legacy MCP controls disabled in native_extension mode")
-    mcps = {m["id"] for m in list_mcps()}
-    if mcp_id not in mcps:
-        raise HTTPException(status_code=404, detail=f"MCP '{mcp_id}' not found")
-    set_mcp_enabled(mcp_id, body.enabled)
-    return {"id": mcp_id, "enabled": body.enabled}
-
-
-@router.get("/api/mcp/browser/status")
-async def mcp_browser_status():
-    """Diagnostic: check Browser MCP extension connection and tool loading."""
-    if _browser_transport() == "native_extension":
-        manager = get_browser_gateway_manager()
-        status = await manager.status()
-        browser_tool_count = len([t for t in get_all_tools() if getattr(t, "name", "").startswith("browser_")])
-        return {
-            "enabled": True,
-            "transport": "native_extension",
-            "tools_loaded": True,
-            "tool_count": browser_tool_count,
-            "mcp_process_ready": False,
-            "extension_connected": bool(status.get("connected")),
-            "session_id": status.get("active_client_id", ""),
-            "last_success_at": "",
-            "last_error_type": "",
-            "last_error_message": "",
-            "probe_error": "" if status.get("connected") else "native extension not connected",
-            "message": "OK" if status.get("connected") else "DEGRADED",
-            "channel_status": status,
-        }
-
-    from config.mcp_config import is_mcp_enabled
-
-    enabled = is_mcp_enabled("browser-mcp")
-    tools_loaded = False
-    tool_count = 0
-    mcp_process_ready = False
-    extension_connected = False
-    session_id = ""
-    last_success_at = ""
-    last_error_type = ""
-    last_error_message = ""
-    probe_error = ""
-    msg = ""
-    if enabled:
-        try:
-            from mcp_client import (
-                BrowserMCPClient,
-                get_browser_mcp_runtime_status,
-                get_browser_mcp_tools,
-                is_extension_not_connected_error,
-            )
-
-            runtime_status = get_browser_mcp_runtime_status()
-            mcp_process_ready = bool(runtime_status.get("mcp_process_ready"))
-            session_id = str(runtime_status.get("session_id") or "")
-            last_success_at = str(runtime_status.get("last_success_at") or "")
-            last_error_type = str(runtime_status.get("last_error_type") or "")
-            last_error_message = str(runtime_status.get("last_error_message") or "")
-
-            tools = get_browser_mcp_tools()
-            tools_loaded = True
-            tool_count = len(tools)
-            msg = "OK"
-
-            extension_connected, probe_error = BrowserMCPClient().probe_extension_connection()
-            if probe_error and not is_extension_not_connected_error(probe_error):
-                msg = "DEGRADED"
-
-            runtime_status = get_browser_mcp_runtime_status()
-            mcp_process_ready = bool(runtime_status.get("mcp_process_ready"))
-            session_id = str(runtime_status.get("session_id") or session_id)
-            last_success_at = str(runtime_status.get("last_success_at") or last_success_at)
-            last_error_type = str(runtime_status.get("last_error_type") or last_error_type)
-            last_error_message = str(runtime_status.get("last_error_message") or last_error_message)
-        except Exception as e:
-            msg = str(e)
-    return {
-        "enabled": enabled,
-        "tools_loaded": tools_loaded,
-        "tool_count": tool_count,
-        "server_command": os.getenv("BROWSER_MCP_COMMAND", "npx"),
-        "server_args": os.getenv("BROWSER_MCP_ARGS", "-y @browsermcp/mcp@latest"),
-        "mcp_process_ready": mcp_process_ready,
-        "extension_connected": extension_connected,
-        "session_id": session_id,
-        "last_success_at": last_success_at,
-        "last_error_type": last_error_type,
-        "last_error_message": last_error_message,
-        "probe_error": probe_error,
-        "message": msg,
-    }
-
-
 @router.get("/api/browser/channel")
 async def browser_channel():
     return {
         "transport": _browser_transport(),
-        "legacy_mcp_available": _browser_transport() == "legacy_mcp",
     }
 
 
 @router.get("/api/browser/channel/status")
 async def browser_channel_status():
     transport = _browser_transport()
-    if transport == "native_extension":
-        status = await get_browser_gateway_manager().status()
-        return {"transport": transport, "status": status}
-    return {"transport": transport, "status": {"connected": False, "message": "legacy_mcp mode"}}
+    status = await get_browser_gateway_manager().status()
+    return {"transport": transport, "status": status}
+
+
+@router.get("/api/browser/images/{image_id}")
+async def browser_image(image_id: str):
+    data_url = get_browser_image(image_id)
+    if not data_url:
+        raise HTTPException(status_code=404, detail="image not found")
+    if not data_url.startswith("data:image/"):
+        raise HTTPException(status_code=400, detail="invalid image payload")
+    m = re.match(r"^data:(image/[a-zA-Z0-9.+-]+);base64,(.+)$", data_url, flags=re.DOTALL)
+    if not m:
+        raise HTTPException(status_code=400, detail="invalid image data_url")
+    media_type = m.group(1)
+    try:
+        content = base64.b64decode(m.group(2), validate=False)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"invalid image base64: {e}")
+    return Response(content=content, media_type=media_type)
 
 
 @router.post("/api/browser/actions/execute")
@@ -1753,7 +1663,7 @@ async def run_alpha_bi_download_job(req: AlphaBiDownloadJobRequest):
         if "unsupported action in content script: alpha_bi_goto_task_center" in goto_msg:
             goto_msg = (
                 "浏览器扩展尚未加载 alpha_bi_goto_task_center 新动作。"
-                "请在扩展管理页 Reload `myclaw-browser-agent`，并对目标页面执行 Ctrl+F5 后重试。"
+                "请在扩展管理页 Reload `myclaw-browser-agent-v3`，并对目标页面执行 Ctrl+F5 后重试。"
             )
         goto_clicked = bool(goto_payload.get("goto_center_clicked"))
         before_url = str(goto_payload.get("before_url") or "")
@@ -1821,7 +1731,7 @@ async def run_alpha_bi_download_job(req: AlphaBiDownloadJobRequest):
         if "unsupported action in content script: alpha_bi_download_table" in err_msg:
             err_msg = (
                 "浏览器扩展尚未加载 alpha_bi_download_table 新动作。"
-                "请在扩展管理页 Reload `myclaw-browser-agent`，并对目标页面执行 Ctrl+F5 后重试。"
+                "请在扩展管理页 Reload `myclaw-browser-agent-v3`，并对目标页面执行 Ctrl+F5 后重试。"
             )
         return {
             "ok": False,
