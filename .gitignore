@@ -47,3 +47,9 @@ Thumbs.db
 # Generated reports and draft docs
 agent_skills_research_report.html
 backend/output/*.html
+
+# AlphaBI local artifacts
+docs/vision-debug/alpha_*/
+docs/vision-debug/alpha_full_init_run_*/
+backend/memory/runtime_plans/plan_alpha_bi_*.md
+task_center_download_result.json

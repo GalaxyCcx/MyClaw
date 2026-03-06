@@ -139,3 +139,8 @@ metadata:
 
 - [PRD 当前版本](docs/PRD-current.md)
 - [Skills 框架设计](docs/skills-framework-agent-design.md)
+
+## AlphaBI 本地调试文件
+
+AlphaBI 相关的本地调试截图、临时计划文件、下载结果等运行产物默认不纳入版本控制。  
+请参考项目根目录 `.gitignore` 中 `AlphaBI local artifacts` 段落。
